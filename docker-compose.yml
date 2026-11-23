@@ -28,5 +28,47 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+  upbit-trades:
+    build: { context: ., dockerfile: Dockerfile.collector }
+    image: mp2-collector
+    container_name: mp2-upbit-trades
+    command: ["python", "-m", "pipeline.collectors.upbit"]
+    environment: { STREAM: trades, CH_HOST: clickhouse, CH_PASSWORD: "${CLICKHOUSE_PASSWORD}", MP2_DATA_ROOT: /data/raw, TZ: UTC }
+    volumes: ["./data/raw:/data/raw"]
+    user: "1000:1000"
+    depends_on: { clickhouse: { condition: service_healthy } }
+    restart: unless-stopped
+    deploy: { resources: { limits: { memory: 256M } } }
+  upbit-orderbook:
+    image: mp2-collector
+    container_name: mp2-upbit-orderbook
+    command: ["python", "-m", "pipeline.collectors.upbit"]
+    environment: { STREAM: orderbook, CH_HOST: clickhouse, CH_PASSWORD: "${CLICKHOUSE_PASSWORD}", MP2_DATA_ROOT: /data/raw, TZ: UTC }
+    volumes: ["./data/raw:/data/raw"]
+    user: "1000:1000"
+    depends_on: { clickhouse: { condition: service_healthy }, upbit-trades: { condition: service_started } }
+    restart: unless-stopped
+    deploy: { resources: { limits: { memory: 384M } } }
+  binance-trades:
+    image: mp2-collector
+    container_name: mp2-binance-trades
+    command: ["python", "-m", "pipeline.collectors.binance"]
+    environment: { STREAM: trades, CH_HOST: clickhouse, CH_PASSWORD: "${CLICKHOUSE_PASSWORD}", MP2_DATA_ROOT: /data/raw, TZ: UTC }
+    volumes: ["./data/raw:/data/raw"]
+    user: "1000:1000"
+    depends_on: { clickhouse: { condition: service_healthy }, upbit-trades: { condition: service_started } }
+    restart: unless-stopped
+    deploy: { resources: { limits: { memory: 384M } } }
+  binance-depth:
+    image: mp2-collector
+    container_name: mp2-binance-depth
+    command: ["python", "-m", "pipeline.collectors.binance"]
+    environment: { STREAM: depth, CH_HOST: clickhouse, CH_PASSWORD: "${CLICKHOUSE_PASSWORD}", MP2_DATA_ROOT: /data/raw, TZ: UTC }
+    volumes: ["./data/raw:/data/raw"]
+    user: "1000:1000"
+    depends_on: { clickhouse: { condition: service_healthy }, upbit-trades: { condition: service_started } }
+    restart: unless-stopped
+    deploy: { resources: { limits: { memory: 256M } } }
+
 volumes:
   clickhouse_data:

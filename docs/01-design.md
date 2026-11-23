@@ -9,7 +9,7 @@
 1. 원본은 파일로 영구 보관. 재처리 원천은 "Kafka 보존 24h" 가 아니라 파일 전부 (docs/58: Binance 호가 82분을 못 메운 이유).
 2. 변환은 전부 ClickHouse SQL·이벤트타임. 스트림 상태가 없으면 재처리 = 라이브 (docs/58 §5 의 비결정성 2건이 생길 자리가 없다).
 3. 모든 테이블 멱등. 원본은 ReplacingMergeTree 자연키, 집계는 파티션 교체 (docs/58 §4: orderbook_1m 은 MergeTree 라 사람이 중복을 막았다).
-4. 프로세스 하나에 관심사 하나, 전부 systemd. 재부팅 뒤 사람 0분 (docs/58 §6: 4시간).
+4. 프로세스 하나에 관심사 하나, 재부팅 뒤 사람 0분 (docs/58 §6: 4시간). **(11-24 변경)** 수집기는 systemd 유닛이 아니라 compose `restart: unless-stopped` 로 올린다. 이 호스트에 사용자 systemd 세션이 없고 시스템 유닛은 설치마다 sudo 가 필요해 반복이 느리다. v1 정전 때 23컨테이너가 restart 정책으로 전부 자동 복귀한 실측이 있어 목표(사람 0분)엔 차이가 없다. 부팅 점검 oneshot 하나만 systemd 로.
 
 ## 2. 구조
 
@@ -24,7 +24,7 @@ Airflow: reconcile_*, dbt_daily, compact_raw(파일→Parquet), backup_daily, he
 
 빠진 것: Kafka·ZooKeeper, Flink, Debezium·MySQL(원장은 Oracle Postgres 로 이미 이관, docs/59 §3), Prometheus·statsd·kafka-ui.
 
-## 3. 수집기 (3개, Python, systemd)
+## 3. 수집기 (프로세스 4개 = 스트림 1개씩, Python, compose)
 
 | 수집기 | 소스 | v1 실측 유입 | 출력 |
 |---|---|---|---|
