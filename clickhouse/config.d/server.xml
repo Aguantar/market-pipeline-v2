@@ -1,0 +1,11 @@
+<clickhouse>
+  <!-- v2: 단일 노드. v1 교훈 - 서버 한도에 걸린 머지 실패가 매시간 났다(docs/00 §4). 컨테이너 3G 에 ratio 0.8 = 2.4GiB -->
+  <max_server_memory_usage_to_ram_ratio>0.8</max_server_memory_usage_to_ram_ratio>
+  <query_log><ttl>event_date + INTERVAL 14 DAY</ttl></query_log>
+  <part_log><ttl>event_date + INTERVAL 14 DAY</ttl></part_log>
+  <metric_log remove="1"/>
+  <asynchronous_metric_log remove="1"/>
+  <trace_log remove="1"/>
+  <text_log remove="1"/>
+  <logger><level>information</level></logger>
+</clickhouse>
