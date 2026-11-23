@@ -87,7 +87,14 @@ def test_recover_tmp_after_crash(tmp_path):
     w._gz = w._fh = None
     tmps = list(tmp_path.glob("*/*/dt=*/hour=*/*.tmp"))
     assert len(tmps) == 1
-    rec = filesink.recover_tmp(tmp_path)
+    # 다른 스트림의 열린 조각은 건드리지 않는다 (2026-11-23 사고)
+    other = filesink.ChunkWriter(tmp_path, "binance", "trades", flush_sec=10**9)
+    other.write(envelope.make("binance", "trades", {"k": 1}, recv_ts=ts))
+    assert filesink.recover_tmp(tmp_path, "upbit", "orderbook") == []
+    assert len(list(tmp_path.glob("binance/trades/dt=*/hour=*/*.tmp"))) == 1
+    rec = filesink.recover_tmp(tmp_path, "upbit", "trades")
+    assert len(list(tmp_path.glob("binance/trades/dt=*/hour=*/*.tmp"))) == 1
+    other.close()
     assert len(rec) == 1 and rec[0].name.endswith("-recovered.jsonl.gz")
     assert not list(tmp_path.glob("*/*/dt=*/hour=*/*.tmp"))
     got = [e["payload"]["i"] for e in filesink.iter_envelopes(rec)]

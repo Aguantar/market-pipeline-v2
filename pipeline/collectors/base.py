@@ -174,9 +174,10 @@ class Connection:
 
 async def run_collector(sinks: list[Sink], conns: list[Connection], stop: asyncio.Event, periodic=None) -> None:
     """연결들을 돌리고, 0.5초마다 싱크 tick, STATS_SEC 마다 통계. periodic: (interval_sec, coroutine_fn) 목록(마켓 갱신 등)."""
-    recovered = filesink.recover_tmp(DATA_ROOT)
-    if recovered:
-        log.info("recovered %d tmp chunk(s) from previous run", len(recovered))
+    for s in sinks:
+        recovered = filesink.recover_tmp(DATA_ROOT, s.source, s.stream)
+        if recovered:
+            log.info("%s/%s: recovered %d tmp chunk(s) from previous run", s.source, s.stream, len(recovered))
     tasks = [asyncio.create_task(c.run()) for c in conns]
     last_stats = time.monotonic()
     last_periodic = {i: time.monotonic() for i in range(len(periodic or []))}

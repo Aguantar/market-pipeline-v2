@@ -197,10 +197,14 @@ def iter_envelopes(paths: list[Path], from_ts_ms: int | None = None, to_ts_ms: i
             yield env
 
 
-def recover_tmp(root: str | Path) -> list[Path]:
-    """비정상 종료가 남긴 .tmp 조각을 살려 닫는다. 읽을 수 있는 완전한 줄만 새 gzip 으로 다시 써 `-recovered` 이름으로 rename."""
+def recover_tmp(root: str | Path, source: str, stream: str) -> list[Path]:
+    """비정상 종료가 남긴 **이 스트림의** .tmp 조각을 살려 닫는다. 읽을 수 있는 완전한 줄만 새 gzip 으로 다시 써 `-recovered` 이름으로 rename.
+
+    스트림을 꼭 한정한다. 2026-11-23 사고: 데이터 루트 전체를 복구 대상으로 삼았더니 기동 중인 다른 수집기의 열린 .tmp 를 지워 버렸고,
+    그 프로세스는 지워진 inode 에 계속 써서 파일이 사라졌다(CH 에는 남음). 한 스트림은 한 프로세스만 쓴다는 전제 위에서만 안전하다.
+    """
     recovered: list[Path] = []
-    for tmp in sorted(Path(root).glob("*/*/dt=*/hour=*/part-*.jsonl.gz.tmp")):
+    for tmp in sorted((Path(root) / source / stream).glob("dt=*/hour=*/part-*.jsonl.gz.tmp")):
         lines = list(iter_lines_gz(tmp))
         if not lines:
             tmp.unlink()
