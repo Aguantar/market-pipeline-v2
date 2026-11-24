@@ -33,7 +33,7 @@ Airflow: reconcile_*, dbt_daily, compact_raw(파일→Parquet), backup_daily, he
 | binance | Binance WS aggTrade(500+ 심볼) + depth(10심볼) | 250 + 70 msg/s (docs/58) | raw/binance/trades, raw/binance/depth |
 
 공통 규약(이것이 확장 계약이다, §9):
-- 메시지 봉투: `{source, stream, schema_version, recv_ts, payload}`. payload 는 거래소 원문 그대로. 파서는 수집기에 없다 → 수집기는 "받아서 두 곳에 쓴다" 만 한다.
+- 메시지 봉투: `{source, stream, schema_version, recv_ts, payload}`. payload 는 거래소 원문 그대로. 파서는 수집기에 없다 → 수집기는 "받아서 두 곳에 쓴다" 만 한다. **(11-24 구현)** ClickHouse 쪽도 봉투를 받는다: `envelopes`(Null 엔진) → Materialized View 4개(`pipeline/sql_parse.py` 가 단일 출처, DDL 005 는 생성물)가 raw_* 로 파싱. rebuild 는 파일을 file() 로 같은 envelopes 에 넣어 **라이브와 같은 파서**를 지난다. 파이썬 parse.py 는 테스트용이며 `pipeline/parity.py` 가 4스트림 227만 행에서 셀 단위 동치를 확인했다(toFloat64 비정확 반올림 → `precise_float_parsing=1`).
 - 파일: `raw/<source>/<stream>/dt=YYYY-MM-DD/hour=HH/part-<recv_ts_ms>-<seq>.jsonl.gz`. 조각은 시간 또는 256MB. 닫힌 조각만 재처리 대상. fsync 뒤 rename (정전에서 0B 파일을 남기지 않기, docs/58).
 - ClickHouse: `async_insert=1, wait_for_async_insert=1`, 배치 500행 또는 1초 (docs/14 §6: 지연은 배치 창이 정한다 → 저유입 시간대에도 1초 상한).
 - 재연결: 무프레임 30초 감지, 즉시 재연결, 백오프 상한 60초 (v1 은 120초 감지·1135초 백오프로 03시 7.7% 유실, docs/58). 재연결마다 `collector_gaps(source, stream, from_ts, to_ts, reason)` 1행.
@@ -64,7 +64,7 @@ Airflow: reconcile_*, dbt_daily, compact_raw(파일→Parquet), backup_daily, he
 | 체결 e2e p95 | ≤ 3s | 2.16s 평균 (docs/14) |
 | 호가 e2e p95 | ≤ 2s | 1.95s 중앙값 (docs/14) |
 | 거래소 대조 | 일 100%, 셀 ≥ 99% | 6일 연속 100% (docs/14) |
-| rebuild 하루치 | ≤ 2분 / ≤ 500MiB | file() 63~114초·401~444MiB (docs/52·59) |
+| rebuild 하루치 | **측정 뒤 확정** (11-24 실측: 1시간치 246만 행 70초 → 하루 추정 약 28분. 처음 적은 2분은 근거 없는 숫자였다) | 파이썬 파싱 900행/초 → CH 파싱 ~35,000행/초 |
 | 메모리 전체 | ≤ 5GB | ≈10GB (docs/58) |
 | 정전 복구 | 자동, 사람 0분 | 4시간 (docs/58) |
 | 7일 무변경 관찰 | docs/12 가설표 그대로 통과 | |

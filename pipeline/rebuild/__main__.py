@@ -1,4 +1,7 @@
-"""rebuild-from-files (docs/01-design §5).
+"""rebuild-from-files (docs/01-design §5, §10 #3·#4).
+
+11-24: 파이썬 파싱 → ClickHouse 가 파일(JSONL.gz·Parquet)을 file() 로 직접 읽어 target.envelopes 에 넣고, 라이브와 같은 MV(sql_parse) 가 raw_* 를 만든다.
+파일은 ClickHouse 컨테이너에 /var/lib/clickhouse/user_files/<MP2_CH_FILE_PREFIX> 로 마운트돼 있어야 한다.
 
   python -m pipeline.rebuild --from 2026-11-23T23:40:00Z --to 2026-11-23T23:50:00Z [--target mp2_rebuild] [--streams upbit/trades,...] [--keep]
 
@@ -14,10 +17,11 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .. import chsink, filesink, parse, schema
+from .. import chsink, filesink, schema
 from .compare import compare
 
-DDL = Path(__file__).resolve().parents[2] / "clickhouse" / "ddl" / "001_raw.sql"
+DDL_DIR = Path(__file__).resolve().parents[2] / "clickhouse" / "ddl"
+DDL_FILES = ["001_raw.sql", "005_envelopes_mv.sql"]   # raw 표 + 봉투 Null 표 + 파싱 MV (재구성도 같은 파서를 지난다)
 
 
 def _ts(s: str) -> datetime:
@@ -25,10 +29,11 @@ def _ts(s: str) -> datetime:
 
 
 def ensure_target(client, target: str) -> None:
-    lines = [ln for ln in DDL.read_text().splitlines() if not ln.strip().startswith("--")]
-    sql = "\n".join(lines).replace("mp2.", f"{target}.").replace("DATABASE IF NOT EXISTS mp2", f"DATABASE IF NOT EXISTS {target}")
-    for stmt in [s.strip() for s in sql.split(";") if s.strip()]:
-        client.command(stmt)
+    for f in DDL_FILES:
+        lines = [ln.split("  -- ")[0] if "  -- " in ln else ln for ln in (DDL_DIR / f).read_text().splitlines() if not ln.strip().startswith("--")]
+        sql = "\n".join(lines).replace("mp2.", f"{target}.").replace("DATABASE IF NOT EXISTS mp2", f"DATABASE IF NOT EXISTS {target}")
+        for stmt in [s.strip() for s in sql.split(";") if s.strip()]:
+            client.command(stmt)
 
 
 def main() -> int:
@@ -61,32 +66,34 @@ def main() -> int:
     tclient = chsink.make_client(os.getenv("CH_HOST", "127.0.0.1"), int(os.getenv("CH_PORT", "8123")),
                                  os.getenv("CH_USER", "default"), os.environ["CH_PASSWORD"], a.target)
     ok = True
-    print(f"rebuild window {t_from:%Y-%m-%d %H:%M:%S}Z ~ {t_to:%Y-%m-%d %H:%M:%S}Z  root={a.root}  live={a.live}  target={a.target}")
-    print(f"{'stream':<18}{'files':>6}{'rows_read':>11}{'rows_parsed':>12}{'secs':>7} | {'cells':>6}{'diff':>6}  result")
+    print(f"rebuild window {t_from:%Y-%m-%d %H:%M:%S}Z ~ {t_to:%Y-%m-%d %H:%M:%S}Z  root={a.root}  live={a.live}  target={a.target}  engine=clickhouse(file→envelopes→MV)")
+    print(f"{'stream':<18}{'files':>6}{'rows_in':>10}{'secs':>7} | {'cells':>6}{'diff':>6}  result")
+    ch_prefix = os.getenv("MP2_CH_FILE_PREFIX", "mp2")
+    data_root = Path(a.root).parent          # <data>/raw → <data>
     for key in [tuple(x.split("/")) for x in a.streams.split(",") if x]:
         t = schema.table_for(*key)
         t0 = time.monotonic()
-        # 조각 선택과 봉투 읽기는 수신 시각으로 창 양쪽에 slack 을 둔다: 거래소 시각이 우리 시각보다 앞설 수 있고(시작 경계),
-        # 접속 시 스냅샷·재전송은 늦게 온다(끝 경계). 창 판정 자체는 이벤트 시각으로만 한다.
         lo, hi = f_ms - a.late_slack_sec * 1000, t_ms + a.late_slack_sec * 1000
         paths = filesink.list_chunks(a.root, *key, lo, hi)
-        b = chsink.CHBatcher(tclient, t, batch_rows=5000, batch_sec=1e9)
-        n_read = n_parsed = 0
-        ti = t.columns.index(t.time_col)
-        for env in filesink.iter_envelopes(paths, lo, hi):
-            n_read += 1
-            p = parse.parse(env)
-            if p and t_from <= p[1][ti] < t_to:      # 창 판정은 이벤트 시각 (라이브 집계와 같은 축)
-                b.add(p[1]); n_parsed += 1
-                if len(b.buf) >= 5000:
-                    b.flush()
-        b.flush()
-        if b.pending_rows:
-            print(f"{'/'.join(key):<18} INSERT FAILED pending={b.pending_rows}", file=sys.stderr); ok = False; continue
+        n_in = 0
+        for p in paths:
+            rel = f"{ch_prefix}/{p.relative_to(data_root)}"
+            if p.suffix == ".parquet":
+                src = f"file('{rel}', Parquet)"
+                recv_expr = "recv_ts"
+            else:
+                src = f"file('{rel}', JSONEachRow, 'source String, stream String, schema_version UInt8, recv_ts Int64, payload String')"
+                recv_expr = "fromUnixTimestamp64Milli(recv_ts, 'UTC')"
+            tclient.command(
+                f"INSERT INTO {a.target}.envelopes SELECT source, stream, schema_version, {recv_expr} AS recv_ts, payload FROM {src} "
+                f"WHERE toUnixTimestamp64Milli({recv_expr}) >= {lo} AND toUnixTimestamp64Milli({recv_expr}) < {hi}",
+                settings={"input_format_json_read_objects_as_strings": 1, "max_threads": 2, "max_insert_threads": 1, "prefer_column_name_to_alias": 1, "precise_float_parsing": 1})
+        # INSERT 는 행수를 돌려주지 않으므로 target 의 raw 행수로 센다 (MV 를 지난 뒤의 수)
+        n_in = int(tclient.command(f"SELECT count() FROM {a.target}.{t.name}"))
         diffs, cells = compare(client, a.live, a.target, t, t_from, t_to)
         res = "OK" if not diffs else "DIFF"
         if diffs: ok = False
-        print(f"{'/'.join(key):<18}{len(paths):>6}{n_read:>11}{n_parsed:>12}{time.monotonic() - t0:>7.1f} | {cells:>6}{len(diffs):>6}  {res}")
+        print(f"{'/'.join(key):<18}{len(paths):>6}{n_in:>10}{time.monotonic() - t0:>7.1f} | {cells:>6}{len(diffs):>6}  {res}")
         for d in diffs[:20]:
             print(f"    {d.cell:<14} {d.hour}  live={d.left_n} rebuilt={d.right_n} hash_equal={d.hash_equal}")
     if not a.keep:

@@ -17,7 +17,9 @@ from datetime import datetime, timezone
 
 import websockets
 
-from .. import chsink, envelope, filesink, parse, schema
+import json as _json
+
+from .. import chsink, envelope, filesink, schema
 
 log = logging.getLogger("collector")
 
@@ -43,30 +45,23 @@ class Sink:
         self.source, self.stream = source, stream
         self.table: schema.RawTable = schema.table_for(source, stream)
         self.writer = filesink.ChunkWriter(DATA_ROOT, source, stream)
-        self.batcher = chsink.CHBatcher(client, self.table)
+        # 11-24 (docs/01 §10 #3): 수집기는 파싱하지 않는다. 봉투를 envelopes(Null) 에 넣고 MV(sql_parse) 가 raw_* 로 파싱한다.
+        self.batcher = chsink.CHBatcher(client, schema.ENVELOPES)
         self.client = client
         self.recv = self.parsed = self.skipped = self.parse_err = 0
         self.lag_ms: list[int] = []
+        self._ev_key = schema.EVENT_TS_KEY[(source, stream)]
 
     def emit(self, payload: dict, recv_ts: int) -> None:
         env = envelope.make(self.source, self.stream, payload, recv_ts)
         self.writer.write(env)                 # 실패하면 예외 → 프로세스 종료 (의도)
         self.recv += 1
-        try:
-            parsed = parse.parse(env)
-        except Exception as e:  # noqa: BLE001
-            self.parse_err += 1
-            if self.parse_err <= 5 or self.parse_err % 1000 == 0:
-                log.warning("parse error (%d): %s payload=%s", self.parse_err, e, json.dumps(payload)[:200])
-            return
-        if parsed is None:
-            self.skipped += 1
-            return
-        _, row = parsed
-        self.batcher.add(row)
-        self.parsed += 1
-        ev = row[self.table.columns.index(self.table.time_col)]
-        self.lag_ms.append(recv_ts - int(ev.timestamp() * 1000))
+        self.batcher.add((self.source, self.stream, envelope.SCHEMA_VERSION, _dt(recv_ts),
+                          _json.dumps(payload, ensure_ascii=False, separators=(",", ":"))))
+        self.parsed += 1                       # 'parsed' 는 이제 'CH 로 보낸 봉투 수'. 실제 파싱 결과는 raw_* 행수로 본다
+        ev = payload.get(self._ev_key)
+        if isinstance(ev, int):
+            self.lag_ms.append(recv_ts - ev)
 
     async def tick(self) -> None:
         self.writer.tick()

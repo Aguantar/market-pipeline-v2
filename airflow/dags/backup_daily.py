@@ -1,4 +1,4 @@
-"""01:20 UTC: 어제 Parquet 압축본을 Oracle /mnt/backup/mp2/parquet 로 rsync, dry-run 0 으로 검증, 원격 보존 N일.
+"""01:20 UTC: 어제 컬럼형 Parquet(export_columnar 산출, parquet/raw_*/dt=)을 Oracle /mnt/backup/mp2/parquet 로 rsync, dry-run 0 으로 검증, 원격 보존 N일.
 v1 교훈(docs/00 §5 10-07·10-29): pipefail, 검증은 '전송했다'가 아니라 '원격이 로컬과 같다', 공간은 보내기 전에 확인."""
 from datetime import datetime
 
@@ -16,13 +16,13 @@ with DAG("backup_daily", default_args=DEFAULT_ARGS, schedule="20 1 * * *", start
          max_active_runs=1, tags=["storage", "backup"], params={"target_date": ""}) as dag:
     day = "{{ params.target_date or ds }}"
     check_space = BashOperator(task_id="check_remote_space", bash_command=f'''set -euo pipefail
-need=$(du -sm /data/parquet/*/*/dt={day} 2>/dev/null | awk '{{s+=$1}} END{{print s+0}}')
+need=$(du -sm /data/parquet/raw_*/dt={day} 2>/dev/null | awk '{{s+=$1}} END{{print s+0}}')
 free=$({SSH} {REMOTE} "df -m /mnt/backup | awk 'NR==2{{print \\$4}}'")
 echo "need=${{need}}MB free=${{free}}MB"
 [ "$need" -gt 0 ] || {{ echo "nothing to back up for {day}"; exit 0; }}
 [ "$free" -gt $((need * 2)) ] || {{ echo "not enough remote space"; exit 1; }}''')
     sync = BashOperator(task_id="sync_to_oracle", bash_command=f'''set -euo pipefail
-for d in /data/parquet/*/*/dt={day}; do
+for d in /data/parquet/raw_*/dt={day}; do
   [ -d "$d" ] || continue
   rel=${{d#/data/parquet/}}
   {SSH} {REMOTE} "mkdir -p {RROOT}/$rel"
@@ -30,7 +30,7 @@ for d in /data/parquet/*/*/dt={day}; do
 done''')
     verify = BashOperator(task_id="verify_remote_in_sync", bash_command=f'''set -euo pipefail
 n=0
-for d in /data/parquet/*/*/dt={day}; do
+for d in /data/parquet/raw_*/dt={day}; do
   [ -d "$d" ] || continue
   rel=${{d#/data/parquet/}}
   c=$(rsync -rltn --itemize-changes -e "{SSH}" "$d/" {REMOTE}:{RROOT}/$rel/ | grep -cE '^[<>ch*]' || true)

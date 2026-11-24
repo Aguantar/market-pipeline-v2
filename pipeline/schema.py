@@ -56,3 +56,17 @@ TABLES: dict[tuple[str, str], RawTable] = {
 
 def table_for(source: str, stream: str) -> RawTable:
     return TABLES[(source, stream)]
+
+
+# 봉투 Null 테이블 (파싱은 MV 가 한다, sql_parse.py). CHBatcher 가 insert 대상으로 쓰는 최소 정의.
+ENVELOPES = RawTable(
+    name="envelopes", source="*", stream="*",
+    columns=("source", "stream", "schema_version", "recv_ts", "payload"),
+    order_by=(), cell_key="source", time_col="recv_ts", hash_cols=("payload",),
+)
+
+# 통계용 이벤트 시각 추출 (파서가 아니다 - 지연 p50/p95 계산에만 쓴다)
+EVENT_TS_KEY: dict[tuple[str, str], str] = {
+    ("upbit", "trades"): "ttms", ("upbit", "orderbook"): "tms",
+    ("binance", "trades"): "T", ("binance", "depth"): "E",
+}

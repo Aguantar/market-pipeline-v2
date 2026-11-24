@@ -24,7 +24,9 @@ MAX_QUEUE = 200_000
 
 def make_client(host: str, port: int, user: str, password: str, database: str = "mp2"):
     return clickhouse_connect.get_client(host=host, port=port, username=user, password=password, database=database,
-                                         settings={"async_insert": 0, "insert_deduplicate": 0})
+                                         settings={"async_insert": 0, "insert_deduplicate": 0,
+                                                   # MV(sql_parse) 가 문자열→Float64 를 정확히 반올림하도록. 기본값은 1.09431 → 1.0943100000000001 (11-24 동치 테스트에서 발견)
+                                                   "precise_float_parsing": 1})
 
 
 class CHBatcher:
