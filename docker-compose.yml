@@ -70,5 +70,73 @@ services:
     restart: unless-stopped
     deploy: { resources: { limits: { memory: 256M } } }
 
+  airflow-postgres:
+    image: postgres:15-alpine
+    container_name: mp2-airflow-postgres
+    environment: { POSTGRES_USER: airflow, POSTGRES_PASSWORD: "${AIRFLOW_POSTGRES_PASSWORD}", POSTGRES_DB: airflow }
+    volumes: ["airflow_pg:/var/lib/postgresql/data"]
+    restart: unless-stopped
+    deploy: { resources: { limits: { memory: 256M } } }
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U airflow"], interval: 15s, timeout: 5s, retries: 5 }
+
+  airflow-init:
+    image: mp2-airflow:2.8.1
+    container_name: mp2-airflow-init
+    environment: &airflow_env
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__FERNET_KEY: "${AIRFLOW_FERNET_KEY}"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__PARALLELISM: "4"
+      AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: "4"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://airflow:${AIRFLOW_POSTGRES_PASSWORD}@airflow-postgres:5432/airflow"
+      AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE: Asia/Seoul
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false"
+      AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "60"
+      AIRFLOW_CONN_CLICKHOUSE_DEFAULT: "http://default:${CLICKHOUSE_PASSWORD}@clickhouse:8123/mp2"
+      CH_HOST: clickhouse
+      CH_PASSWORD: "${CLICKHOUSE_PASSWORD}"
+      SLACK_WEBHOOK_URL: "${SLACK_WEBHOOK_URL:-}"
+      MP2_DATA_ROOT: /data/raw
+      DBT_LOG_PATH: /tmp/dbt-logs          # dbt 디렉터리는 호스트 uid 1000 소유 bind mount 라 컨테이너(50000)가 못 쓴다
+      DBT_TARGET_PATH: /tmp/dbt-target
+      AIRFLOW_ADMIN_PASSWORD: "${AIRFLOW_ADMIN_PASSWORD}"
+      TZ: UTC
+    volumes: &airflow_vols
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./airflow/logs:/opt/airflow/logs
+      - ./dbt:/opt/airflow/dbt
+      - ./pipeline:/opt/airflow/pipeline:ro
+      - ./data/raw:/data/raw:ro
+    user: "50000:0"
+    depends_on: { airflow-postgres: { condition: service_healthy } }
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["airflow db migrate && (airflow users create -u admin -p \"$$AIRFLOW_ADMIN_PASSWORD\" -f Admin -l User -r Admin -e admin@example.com || true)"]
+
+  airflow-scheduler:
+    image: mp2-airflow:2.8.1
+    container_name: mp2-airflow-scheduler
+    command: scheduler
+    environment: *airflow_env
+    volumes: *airflow_vols
+    user: "50000:0"
+    depends_on: { airflow-init: { condition: service_completed_successfully }, clickhouse: { condition: service_healthy } }
+    restart: unless-stopped
+    deploy: { resources: { limits: { memory: 1G } } }
+
+  airflow-webserver:
+    image: mp2-airflow:2.8.1
+    container_name: mp2-airflow-webserver
+    command: webserver
+    ports: ["127.0.0.1:8085:8080"]
+    environment: *airflow_env
+    volumes: *airflow_vols
+    user: "50000:0"
+    depends_on: { airflow-init: { condition: service_completed_successfully } }
+    restart: unless-stopped
+    deploy: { resources: { limits: { memory: 640M } } }
+    healthcheck: { test: ["CMD", "curl", "-fs", "http://localhost:8080/health"], interval: 30s, timeout: 10s, retries: 5, start_period: 60s }
+
 volumes:
   clickhouse_data:
+  airflow_pg:

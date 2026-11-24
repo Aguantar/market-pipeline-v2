@@ -1,0 +1,7 @@
+FROM apache/airflow:2.8.1-python3.10
+# dbt 는 Airflow 와 의존성이 겹치므로 별도 venv 에 둔다. 이미지가 PIP_USER=true 를 켜 두므로 venv 안에서는 끈다.
+# 같은 이미지 안이라 "호스트 dbt 와 컨테이너 dbt 버전이 다른" v1 사고(docs/00 §5)는 생기지 않는다.
+RUN python -m venv /home/airflow/dbt-venv \
+ && PIP_USER=false /home/airflow/dbt-venv/bin/pip install --no-cache-dir "dbt-core==1.11.6" "dbt-clickhouse==1.10.0" \
+ && pip install --no-cache-dir "clickhouse-connect>=0.8,<0.9"
+RUN ln -s /home/airflow/dbt-venv/bin/dbt /home/airflow/.local/bin/dbt
