@@ -1,0 +1,14 @@
+mp2:
+  target: dev
+  outputs:
+    dev:
+      type: clickhouse
+      schema: mp2
+      host: "{{ env_var('CH_HOST', '127.0.0.1') }}"
+      port: "{{ env_var('CH_PORT', '8123') | int }}"
+      user: "{{ env_var('CH_USER', 'default') }}"
+      password: "{{ env_var('CH_PASSWORD') }}"
+      secure: false
+      connect_timeout: 10
+      send_receive_timeout: 600
+      threads: 2

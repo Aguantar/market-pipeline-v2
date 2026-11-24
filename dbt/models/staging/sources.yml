@@ -1,0 +1,15 @@
+version: 2
+sources:
+  - name: raw
+    database: mp2
+    tables:
+      - name: raw_upbit_trades
+      - name: raw_upbit_orderbook
+      - name: raw_binance_trades
+      - name: raw_binance_depth
+      - name: collector_gaps
+  - name: reference
+    database: mp2
+    tables:
+      - name: upbit_hourly_candles
+      - name: binance_hourly_candles

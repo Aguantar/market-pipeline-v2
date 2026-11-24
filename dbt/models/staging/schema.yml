@@ -1,0 +1,14 @@
+version: 2
+models:
+  - name: stg_upbit_trades
+    columns:
+      - { name: market, tests: [not_null] }
+      - { name: sequential_id, tests: [not_null] }
+      - { name: trade_ts, tests: [not_null] }
+  - name: stg_binance_trades
+    columns:
+      - { name: symbol, tests: [not_null] }
+      - { name: trade_id, tests: [not_null] }
+  - name: stg_upbit_orderbook
+    columns:
+      - { name: market, tests: [not_null] }
