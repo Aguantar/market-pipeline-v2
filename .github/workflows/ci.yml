@@ -1,0 +1,46 @@
+# CI: 단위 테스트 → (main push 때만) 수집기 이미지 빌드·ghcr push.
+# 통합 테스트(tests/test_chsink.py)는 ClickHouse 가 필요해 제외한다. 이 파일은 호스트의 어떤 프로세스도 읽지 않는다 (관찰 규칙 무관).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"            # pyproject requires-python >=3.12
+      - name: Install deps (pyproject dependencies + dev + pyarrow for filesink parquet path)
+        run: python -m pip install --quiet "websockets>=13,<15" "clickhouse-connect>=0.8,<0.9" pyarrow "pytest>=8" "pytest-asyncio>=0.24"
+      - name: Unit tests (integration tests excluded)
+        run: python -m pytest -q --ignore=tests/test_chsink.py
+
+  build:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write                       # GITHUB_TOKEN 으로 ghcr push. 별도 시크릿 없음
+    steps:
+      - uses: actions/checkout@v4
+      - id: meta
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.collector
+          push: true
+          tags: |
+            ghcr.io/aguantar/market-pipeline-v2-collector:latest
+            ghcr.io/aguantar/market-pipeline-v2-collector:sha-${{ steps.meta.outputs.short }}
