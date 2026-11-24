@@ -164,31 +164,58 @@ def iter_lines_gz(path: Path) -> Iterator[bytes]:
         # 개행 없는 꼬리는 불완전한 줄 → 버린다
 
 
+def parquet_root(root: str | Path) -> Path:
+    """압축본 위치: raw 와 같은 data 디렉터리 아래 parquet/ (compact.py 가 쓴다)."""
+    return Path(root).parent / "parquet"
+
+
+def _in_range(start_ms: int, end_ms: int, from_ts_ms, to_ts_ms) -> bool:
+    if to_ts_ms is not None and start_ms >= to_ts_ms:
+        return False
+    if from_ts_ms is not None and end_ms <= from_ts_ms:
+        return False
+    return True
+
+
 def list_chunks(root: str | Path, source: str, stream: str,
                 from_ts_ms: int | None = None, to_ts_ms: int | None = None) -> list[Path]:
-    """닫힌 조각만. 시간 범위는 시간 디렉터리 단위로 거른다(조각 안 recv_ts 는 읽는 쪽이 다시 거른다)."""
-    base = Path(root) / source / stream
+    """닫힌 조각만(JSONL.gz 시간 조각 + 압축된 Parquet 일 조각). 시간 범위는 디렉터리 단위로 거른다(조각 안 recv_ts 는 읽는 쪽이 다시 거른다)."""
     out: list[Path] = []
-    if not base.exists():
-        return out
-    for p in sorted(base.glob("dt=*/hour=*/part-*.jsonl.gz")):
-        if from_ts_ms is not None or to_ts_ms is not None:
-            dt = p.parent.parent.name[3:]
-            hh = p.parent.name[5:]
+    base = Path(root) / source / stream
+    if base.exists():
+        for p in sorted(base.glob("dt=*/hour=*/part-*.jsonl.gz")):
+            dt, hh = p.parent.parent.name[3:], p.parent.name[5:]
             start = int(datetime.strptime(f"{dt} {hh}", "%Y-%m-%d %H").replace(tzinfo=timezone.utc).timestamp() * 1000)
-            end = start + 3_600_000
-            if to_ts_ms is not None and start >= to_ts_ms:
-                continue
-            if from_ts_ms is not None and end <= from_ts_ms:
-                continue
-        out.append(p)
+            if _in_range(start, start + 3_600_000, from_ts_ms, to_ts_ms):
+                out.append(p)
+    pbase = parquet_root(root) / source / stream
+    if pbase.exists():
+        for p in sorted(pbase.glob("dt=*/part-*.parquet")):
+            dt = p.parent.name[3:]
+            start = int(datetime.strptime(dt, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp() * 1000)
+            if _in_range(start, start + 86_400_000, from_ts_ms, to_ts_ms):
+                out.append(p)
     return out
+
+
+def iter_parquet(path: Path) -> Iterator[dict]:
+    """compact.py 가 쓴 봉투 Parquet → 봉투 dict (recv_ts 는 ms 정수로 되돌린다)."""
+    import json
+    import pyarrow.parquet as pq
+    pf = pq.ParquetFile(path)
+    for batch in pf.iter_batches(batch_size=50_000, columns=["source", "stream", "schema_version", "recv_ts", "payload"]):
+        cols = batch.to_pydict()
+        for i in range(batch.num_rows):
+            ts = cols["recv_ts"][i]
+            yield {"source": cols["source"][i], "stream": cols["stream"][i], "schema_version": cols["schema_version"][i],
+                   "recv_ts": int(ts.timestamp() * 1000) if hasattr(ts, "timestamp") else int(ts),
+                   "payload": json.loads(cols["payload"][i])}
 
 
 def iter_envelopes(paths: list[Path], from_ts_ms: int | None = None, to_ts_ms: int | None = None) -> Iterator[dict]:
     for p in paths:
-        for line in iter_lines_gz(p):
-            env = envelope.loads(line)
+        src = iter_parquet(p) if p.suffix == ".parquet" else (envelope.loads(line) for line in iter_lines_gz(p))
+        for env in src:
             ts = env["recv_ts"]
             if from_ts_ms is not None and ts < from_ts_ms:
                 continue

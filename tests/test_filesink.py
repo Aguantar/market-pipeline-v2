@@ -115,3 +115,26 @@ def test_truncated_gzip_yields_complete_lines_only(tmp_path):
     assert 0 < len(lines) < n
     for ln in lines:
         envelope.loads(ln)   # 전부 완전한 JSON
+
+
+def test_parquet_chunks_are_listed_and_read(tmp_path):
+    """compact.py 출력 형식의 Parquet 을 rebuild 가 같은 길로 읽는다."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    raw_root = tmp_path / "raw"
+    w = filesink.ChunkWriter(raw_root, "upbit", "trades")
+    h0 = 1_795_132_800_000
+    w.write(_env(h0 + 5, 1)); w.close()                                   # 2026-11-20 JSONL
+    pdir = tmp_path / "parquet" / "upbit" / "trades" / "dt=2026-11-19"   # 전날은 Parquet 로 압축돼 있음
+    pdir.mkdir(parents=True)
+    recv = h0 - 86_400_000 + 7
+    tbl = pa.table({"source": ["upbit"], "stream": ["trades"], "schema_version": pa.array([1], pa.uint8()),
+                    "recv_ts": pa.array([recv], pa.timestamp("ms", tz="UTC")), "payload": ['{"i": 99, "한글": "ok"}']})
+    pq.write_table(tbl, pdir / "part-0000.parquet", compression="zstd")
+    chunks = filesink.list_chunks(raw_root, "upbit", "trades")
+    assert [c.suffix for c in chunks] == [".gz", ".parquet"]
+    envs = list(filesink.iter_envelopes(chunks))
+    assert [e["payload"]["i"] for e in envs] == [1, 99]
+    assert envs[1]["recv_ts"] == recv and envs[1]["payload"]["한글"] == "ok"
+    only_prev = filesink.list_chunks(raw_root, "upbit", "trades", from_ts_ms=h0 - 86_400_000, to_ts_ms=h0)
+    assert [c.suffix for c in only_prev] == [".parquet"]
