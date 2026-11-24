@@ -114,6 +114,7 @@ services:
       - ./data:/data
       - /home/calme/mp2-secrets:/opt/airflow/secrets:ro
     user: "1000:0"
+    group_add: ["101"]          # ClickHouse(uid 101) 가 640 으로 쓴 Parquet 을 읽는다 (v1 과 같은 방식, docs/00 §2)
     depends_on: { airflow-postgres: { condition: service_healthy } }
     # 이미지 entrypoint 를 유지해야 임의 uid(1000) 에 passwd 항목·HOME 이 만들어진다 (덮어쓰면 airflow 모듈을 못 찾는다, 11-24)
     command: ["bash", "-c", "airflow db migrate && (airflow users create -u admin -p \"$$AIRFLOW_ADMIN_PASSWORD\" -f Admin -l User -r Admin -e admin@example.com || true)"]
@@ -125,6 +126,7 @@ services:
     environment: *airflow_env
     volumes: *airflow_vols
     user: "1000:0"
+    group_add: ["101"]          # ClickHouse(uid 101) 가 640 으로 쓴 Parquet 을 읽는다 (v1 과 같은 방식, docs/00 §2)
     depends_on: { airflow-init: { condition: service_completed_successfully }, clickhouse: { condition: service_healthy } }
     restart: unless-stopped
     deploy: { resources: { limits: { memory: 1G } } }
@@ -137,6 +139,7 @@ services:
     environment: *airflow_env
     volumes: *airflow_vols
     user: "1000:0"
+    group_add: ["101"]          # ClickHouse(uid 101) 가 640 으로 쓴 Parquet 을 읽는다 (v1 과 같은 방식, docs/00 §2)
     depends_on: { airflow-init: { condition: service_completed_successfully } }
     restart: unless-stopped
     deploy: { resources: { limits: { memory: 640M } } }

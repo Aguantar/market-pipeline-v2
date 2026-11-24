@@ -17,3 +17,4 @@
   - **발견 2 (rebuild 처리량)**: JSONL.gz 경로 ≈ 900행/s(파이썬 gzip+json+Decimal+동기 insert), Parquet 경로는 81k 행 6초. 하루치 합격선(≤2분)엔 둘 다 부족 → 파싱을 ClickHouse 쪽(JSONExtract)으로 옮기는 것이 2주차 Spark 비교의 또 다른 축.
   - Airflow 를 uid 1000 으로 바꾸며 막힌 것 둘: init 의 entrypoint 덮어쓰기(이미지의 임의 uid 처리 건너뜀 → airflow 모듈 못 찾음), 로그 디렉터리 소유자(50000 시절) → 새 DAG 2개 직렬화 실패("Dag not found"). 둘 다 수정.
   - 11-23 압축 측정: upbit/orderbook 101,465행 24.8→10.3MiB 1.2초 301MiB / binance/trades 107,944행 0.2초 38MiB / upbit/trades 10,475행 0.07초 / depth 36,906행 0.25초.
+- 11-24 01:1x UTC backup_daily 수동 실행(11-23): Airflow 에 보조 그룹 101(group_add) → ClickHouse 가 640 으로 쓴 Parquet 읽기 가능 → rsync 4파일 16MB → Oracle `/mnt/backup/mp2/parquet`, dry-run 차이 0, SHA256 일치, 보존 14일 적용. **1주차 구현 항목 전부 가동**: 수집기 4·파일·CH raw·rebuild·dbt 15모델·Airflow 7 DAG(dbt_hourly, dbt_daily_finalize, reconcile_upbit, reconcile_binance, health_check, compact_raw 00:20, backup_daily 01:20)·heartbeat·Oracle 감시자. 첫 자동 일주기(ds=11-24)는 11-25 00:20~06:35 UTC.

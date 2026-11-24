@@ -82,14 +82,14 @@ Airflow: reconcile_*, dbt_daily, compact_raw(파일→Parquet), backup_daily, he
 | 주 | 산출물 | 검증 |
 |---|---|---|
 | 0 | 이 문서 확정, docs/60 | 사용자 검토 |
-| 1 | 수집기 3개 + 파일 + ClickHouse raw + rebuild.py + dbt 이식 + Airflow 4 DAG | rebuild 전 셀 일치, 7일 관찰 시작 |
+| 1 | 수집기 4개 + 파일 + ClickHouse raw + rebuild + dbt 15모델 + Airflow 7 DAG(compact_raw·backup_daily 를 1주차로 앞당김) | **완료 11-24 01:1x UTC.** rebuild 991셀·898셀 일치, 7일 관찰 11-23 23:53:20 UTC 시작 |
 | 2 | Spark 배치(재처리·대조·compact) vs ClickHouse `file()` 측정, Iceberg vs Parquet 폴더 측정, 알림 임계 | 측정표. 이득 없으면 제외 |
 | 3 | 7일 관찰 판정, v1/v2 비교 문서, 전원 뽑기 리허설 1회 | 합격선 전 항목 |
 
 ## 8. 위험
 
 - Binance 호가 재구성(증분 → 호가장)은 상태가 필요하다. v1 처럼 스트림으로 하지 않고, 필요할 때 Spark/Python 배치로 depth 원본에서 재구성한다. 라이브 호가장 지표가 필요해지면 그때 결정.
-- 디스크: 원본 JSONL.gz 추정 2~3GB/일(측정 전). compact 뒤 Parquet ~1GB/일. 466GB 에서 raw 1년 가능. 측정 뒤 보존 기간 확정.
+- 디스크: **(11-24 실측)** 원본 JSONL.gz ≈ 7.9GB/일(설계 추정의 3배). payload 를 JSON 문자열로 둔 봉투 Parquet(zstd)은 gzip 대비 호가 2.4×·체결 1.1× 뿐이라 ≈ 4~5GB/일 → Oracle 여유 32GB 로 약 6일. 원본 보존 원칙 vs 저장 비용의 결정 필요: (a) 봉투 Parquet 유지 + Oracle 보존 7일, (b) 파싱된 컬럼형 Parquet(v1 14:1) 로 압축하고 봉투 JSONL 은 로컬 N일, (c) 둘 다. 2주차 Spark 비교와 함께 결정.
 - ClickHouse async insert 의 지연·중복 특성은 1주차 측정 항목.
 - Upbit REST 백필(v1 도구)은 그대로 쓰되 docs/58 §4 의 결함 셋(마켓 목록·404·중단 시 기록) 수정.
 
