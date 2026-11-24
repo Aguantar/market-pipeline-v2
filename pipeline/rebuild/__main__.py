@@ -46,6 +46,15 @@ def main() -> int:
     t_from, t_to = _ts(a.t_from), _ts(a.t_to)
     f_ms, t_ms = int(t_from.timestamp() * 1000), int(t_to.timestamp() * 1000)
 
+    # 열린 조각(.tmp)은 읽지 않으므로, 창 끝 + slack 이 "지금 - 회전 주기" 보다 최근이면 마지막 행들이 빠져 거짓 DIFF 가 난다.
+    # 2026-11-24 00:01 에 23:54~00:00 창을 돌려 셀당 +1 이 난 것이 이 경우였다.
+    newest_needed_ms = t_ms + a.late_slack_sec * 1000
+    now_ms = int(time.time() * 1000)
+    if newest_needed_ms > now_ms - filesink.ROTATE_SEC * 1000:
+        wait_s = (newest_needed_ms - (now_ms - filesink.ROTATE_SEC * 1000)) / 1000
+        print(f"WARNING: window end + slack is within the chunk rotation period ({filesink.ROTATE_SEC}s); "
+              f"open chunks are excluded. Re-run in {wait_s:.0f}s for a definitive result.", file=sys.stderr)
+
     client = chsink.make_client(os.getenv("CH_HOST", "127.0.0.1"), int(os.getenv("CH_PORT", "8123")),
                                 os.getenv("CH_USER", "default"), os.environ["CH_PASSWORD"], a.live)
     ensure_target(client, a.target)
@@ -57,11 +66,14 @@ def main() -> int:
     for key in [tuple(x.split("/")) for x in a.streams.split(",") if x]:
         t = schema.table_for(*key)
         t0 = time.monotonic()
-        paths = filesink.list_chunks(a.root, *key, f_ms, t_ms + a.late_slack_sec * 1000)
+        # 조각 선택과 봉투 읽기는 수신 시각으로 창 양쪽에 slack 을 둔다: 거래소 시각이 우리 시각보다 앞설 수 있고(시작 경계),
+        # 접속 시 스냅샷·재전송은 늦게 온다(끝 경계). 창 판정 자체는 이벤트 시각으로만 한다.
+        lo, hi = f_ms - a.late_slack_sec * 1000, t_ms + a.late_slack_sec * 1000
+        paths = filesink.list_chunks(a.root, *key, lo, hi)
         b = chsink.CHBatcher(tclient, t, batch_rows=5000, batch_sec=1e9)
         n_read = n_parsed = 0
         ti = t.columns.index(t.time_col)
-        for env in filesink.iter_envelopes(paths, f_ms, t_ms + a.late_slack_sec * 1000):
+        for env in filesink.iter_envelopes(paths, lo, hi):
             n_read += 1
             p = parse.parse(env)
             if p and t_from <= p[1][ti] < t_to:      # 창 판정은 이벤트 시각 (라이브 집계와 같은 축)
