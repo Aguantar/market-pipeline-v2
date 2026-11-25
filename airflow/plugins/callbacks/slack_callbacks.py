@@ -24,12 +24,12 @@ def _get_webhook_url() -> str | None:
         return None
 
 
-def _send_slack_message(payload: dict[str, Any]) -> None:
-    """Slack Webhook으로 메시지를 전송합니다."""
+def _send_slack_message(payload: dict[str, Any]) -> bool:
+    """Slack Webhook으로 메시지를 전송합니다. 11-25: 전달 여부(HTTP 2xx)를 돌려준다 — alert_canary 가 이 값으로 경로 생존을 증명한다."""
     webhook_url = _get_webhook_url()
     if not webhook_url:
         logger.warning("Slack webhook URL not configured (Variable: slack_webhook_url)")
-        return
+        return False
 
     try:
         response = requests.post(
@@ -39,8 +39,10 @@ def _send_slack_message(payload: dict[str, Any]) -> None:
             timeout=10,
         )
         response.raise_for_status()
+        return True
     except requests.RequestException as e:
         logger.error("Failed to send Slack notification: %s", e)
+        return False
 
 
 def send_critical_alert(title: str, lines: list[str]) -> bool:
@@ -166,7 +168,7 @@ def sla_miss_callback(dag, task_list, blocking_task_list, slas, blocking_tis) ->
     _send_slack_message(payload)
 
 
-def send_health_alert(unhealthy_components: list[dict[str, Any]]) -> None:
+def send_health_alert(unhealthy_components: list[dict[str, Any]]) -> bool:
     """헬스체크 이상 발견 시 Slack 알림."""
     fields = []
     for comp in unhealthy_components:
@@ -189,7 +191,7 @@ def send_health_alert(unhealthy_components: list[dict[str, Any]]) -> None:
             {"type": "section", "fields": fields[:10]},
         ]
     }
-    _send_slack_message(payload)
+    return _send_slack_message(payload)
 
 
 # 거래소 시장경보 플래그의 한글 이름 (2026-09-21). 영문 상수를 그대로 보여주면 읽는 사람이

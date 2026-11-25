@@ -45,7 +45,8 @@ cd dbt && CH_PASSWORD=… ../.venv/bin/dbt build --profiles-dir .               
 |---|---|---|
 | 수집기 상태 | `docker logs mp2-upbit-trades` 의 `[STATS]` (recv/ch inserted/dropped/lag p50·p95) | 30초 |
 | Airflow DAG 7 | dbt_hourly(매시 05) · dbt_daily_finalize(00:30) · reconcile_binance(00:40) · reconcile_upbit(06:35) · health_check(10분) · export_columnar(00:20) · backup_daily(01:20) | UTC |
-| 외부 감시 | `scripts/ops/heartbeat-push.sh` → Oracle cdc-watchdog (세 스트림 모두 0 일 때만 stale) | 5분 |
+| 외부 감시 | `scripts/ops/heartbeat-push.sh` → Oracle cdc-watchdog (세 스트림 모두 0 일 때만 stale, 알림 카나리 26h 부재 → degraded) | 5분 |
+| 알림 카나리 | `alert_canary` DAG 가 실제 경로로 Slack 1건 → 마커 → heartbeat → 감시자 (`docs/06`) | 매일 07:10 UTC |
 | 관측 지표 | `scripts/observe/collect_metrics.sh` → `mp2.ops_metrics_5m` + CSV (v1 과 같은 단위: 5분 행수, lag p50/p95, 신선도, RSS, 디스크) | 5분 |
 | 측정 | `mp2.compaction_runs` (엔진별 하루치 재파싱 시간·메모리·크기), `mp2.pipeline_incidents`, `mp2.collector_gaps` | |
 | CD | `~/mp2-bin/mp2-cd`(Go, `cd/`) — GHCR digest 변화 감지 → `MODE=notify` 알림 / `MODE=deploy` 수집기 4개 pull·up·검증·롤백 (`docs/05`) | 5분 |

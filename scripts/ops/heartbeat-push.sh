@@ -20,13 +20,19 @@ CH_OUT=$(curl -s -m 10 -u "default:$CP" -w '\n%{http_code}' 'http://127.0.0.1:81
 CH_RC=$?
 CH_CODE=$(printf '%s' "$CH_OUT" | tail -n1)
 CH_BODY=$(printf '%s' "$CH_OUT" | sed '$d')
-PAYLOAD=$(CH_BODY="$CH_BODY" CH_RC="$CH_RC" CH_CODE="$CH_CODE" python3 - <<'PY'
+PAYLOAD=$(CH_BODY="$CH_BODY" CH_RC="$CH_RC" CH_CODE="$CH_CODE" CANARY="$REPO/data/logs/alert_canary.json" python3 - <<'PY'
 import json, os, socket, time
 body, rc, code = os.environ["CH_BODY"], os.environ["CH_RC"], os.environ.get("CH_CODE", "")
 now = time.time()
 out = {"schema": 2, "pipeline": "mp2", "host": socket.gethostname(),
        "sent_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)), "sent_at_epoch": int(now),
        "clickhouse": "fail", "verdict": "degraded", "detail": ""}
+# 알림 경로 카나리(alert_canary DAG 가 Slack 2xx 를 받은 시각). 감시자가 26시간 넘게 갱신 없으면 degraded (docs/06)
+try:
+    c = json.load(open(os.environ["CANARY"]))
+    out["alert_canary_at"], out["alert_canary_epoch"] = c["sent_at"], int(c["epoch"])
+except Exception:
+    pass
 try:
     row = json.loads(body)["data"][0]
     out.update({"clickhouse": "ok", "recent_trades_5m": int(row["recent_trades_5m"]), "recent_orderbook_5m": int(row["recent_orderbook_5m"]),
