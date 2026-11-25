@@ -1,6 +1,6 @@
 # 02. v1 ↔ v2 전·후 비교
 
-작성 2026-11-24. v1 열은 전부 채웠고(출처 표기), v2 열은 7일 관찰 판정일(**2026-12-02 03:10:23 UTC, 11-25 마지막 수정 커밋 + 7일**; 원래 12-01 02:29 였으나 §7 의 수정으로 재시작)에 채운다. v2 "첫날" 열은 11-24 03:02 UTC 한 스냅샷이며 참고값이다.
+작성 2026-11-24. v1 열은 전부 채웠고(출처 표기), v2 열은 7일 관찰 판정일(**2026-12-02 10:25:33 UTC, 11-25 마지막 수정 커밋 + 7일**; 원래 12-01 02:29 였으나 §7 의 수정으로 재시작)에 채운다. v2 "첫날" 열은 11-24 03:02 UTC 한 스냅샷이며 참고값이다.
 
 같은 단위로 재기 위해 v2 에도 5분 관측기를 뒀다: `scripts/observe/collect_metrics.sh`(호스트 cron 5분) → `mp2.ops_metrics_5m` + `~/pipeline-observation/mp2_metrics_5m.csv`. v1 은 `~/pipeline-observation/metrics_5m.csv`(21,663행, 2026-09-09 04:58 ~ 11-23 11:15 UTC, 75일). 관측기는 읽기만 하며 파이프라인 경로를 바꾸지 않는다(관찰 시계 유지).
 
@@ -93,16 +93,16 @@ SELECT stream,
        quantile(0.5)(rows_5m) rows_median, quantile(0.95)(rows_5m) rows_p95,
        max(container_mem_mb) mem_max, sum(gaps_1h > 0) snapshots_with_gap
 FROM mp2.ops_metrics_5m
-WHERE ts BETWEEN '2026-11-25 03:10:23' AND '2026-12-02 03:10:23' AND stream != 'host'
+WHERE ts BETWEEN '2026-11-25 10:25:33' AND '2026-12-02 10:25:33' AND stream != 'host'
 GROUP BY stream ORDER BY stream;
 
 SELECT quantile(0.5)(ch_mem_mb), quantile(0.95)(ch_mem_mb), max(ch_mem_mb), max(host_used_mb), min(disk_free_gb), max(raw_dir_gb), max(parquet_dir_gb)
-FROM mp2.ops_metrics_5m WHERE stream = 'host' AND ts BETWEEN '2026-11-25 03:10:23' AND '2026-12-02 03:10:23';
+FROM mp2.ops_metrics_5m WHERE stream = 'host' AND ts BETWEEN '2026-11-25 10:25:33' AND '2026-12-02 10:25:33';
 ```
 
 ## 7. 관찰 중 발견 (11-24 02:29 ~ 11-25 00:43 UTC, 첫 22시간)
 
-"7일 무변경" 은 첫날에 깨졌고, 그게 관찰의 목적이었다. 발견 6건, 전부 수정(11-25 00:40~01:1x 배포). 원본 파일은 전부 무사했고, 하루 고유 키 2,259,064 = ClickHouse FINAL 2,259,064 로 **손실 0** 이 확인됐다.
+"7일 무변경" 은 첫날에 깨졌고, 그게 관찰의 목적이었다. 발견 8건, 7건 수정(11-25 00:40~10:4x 배포), #7 은 결정 대기. 원본 파일은 전부 무사했고, 하루 고유 키 2,259,064 = ClickHouse FINAL 2,259,064 로 **손실 0** 이 확인됐다.
 
 | # | 발견 | 영향 | 잡은 수단 | 조치 |
 |---|---|---|---|---|
@@ -111,6 +111,8 @@ FROM mp2.ops_metrics_5m WHERE stream = 'host' AND ts BETWEEN '2026-11-25 03:10:2
 | 3 | Binance depth 심볼 목록을 순서까지 비교 → 순위만 바뀌어도 재접속 | 시간당 6~10초 공백 ×4회/일 | collector_gaps + 로그 `+[] -[]` | **수정**: 집합 비교 |
 | 4 | export 검증이 Parquet 를 되읽을 때 배열을 `Array(Nullable)` 로 추론 → cityHash64 불일치 | depth 242/242·orderbook 7,219 셀 거짓 DIFF, 데이터는 행수·해시(CAST 후) 일치 | 첫 자동 export_columnar(11-25 00:20) | **수정**: `schema_inference_make_columns_nullable=0` |
 | 5 | export INSERT 실패 뒤 부분 Parquet 가 남고 backup 이 그대로 복사 | 부분 파일 4개(2.3GB)가 백업 대상 디렉터리에 | #2·#4 조사 중 | **수정**: `.tmp/` 에 쓰고 검증 통과 뒤 rename, 실패 시 삭제. 4개는 격리 |
+| 7 | Upbit 재접속 7~16회/일(v1 관찰 주간 2회/주). 서버측 close·ping timeout·30초 무프레임. 공백 11~32초의 체결은 파일에도 없음 | 11-24 reconcile_upbit 84/12,611셀 <99%(재접속 5개 시간대와 일치) → DAG 실패 | 거래소 캔들 대조(dbt 테스트) | **미수정, 결정 필요**: Upbit REST 백필 도구 이식(docs/01 §8). 재접속 원인은 Upbit 쪽(Binance 0회) |
+| 8 | reconcile 두 DAG 의 `summarize` 도 `component` 키로 알림 호출(#1 의 누락 2곳) | 06:46 critical 미발송 | DAG 실패 이력 | **수정**: name 키. 호출처 3곳 전부 확인 |
 | 6 | 거래소가 재접속 뒤 같은 체결을 다시 보내 파일에 중복(하루 2,290행) → export Parquet 셀 행수 > 라이브 FINAL | 재접속 있는 날은 export 가 거짓 DIFF 로 실패 | 재투입 뒤 파일 vs CH 고유 키 대조 | **수정**: 출력은 파싱한 그대로 두고 **검증을 라이브와 같은 의미**로 — 키별 마지막 수신본(`argMax(hash, recv_ts)`)만 센다(호가는 같은 키로 내용이 다른 스냅샷도 와서 단순 중복 제거로는 부족했다). 출력에서 중복 제거(LIMIT BY·GROUP BY)는 호가 23M 행에서 메모리 한도를 세 번 넘어 포기 |
 
 교훈: ① "파일 1순위" 는 손실을 막았지만 **CH 적재 경로의 독 행 한 건이 스트림 전체를 멈추는 것**은 설계가 아니라 측정이 알려 줬다. ② 알림 경로는 **실제로 한 번 울려 봐야** 믿을 수 있다(v1 코드 재사용이 계약 불일치를 숨겼다). ③ 검증 코드도 틀릴 수 있다 — 거짓 DIFF 를 "데이터 손실" 로 읽지 않으려면 행수와 해시를 따로 본다.

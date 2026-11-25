@@ -63,7 +63,7 @@ def summarize(**context) -> dict:
     result = {"date": day, **agg, "worst": worst, "dbt_failed": dbt_failed}
     context["ti"].log.info("reconcile summary: %s", result)
     if dbt_failed or int(agg.get("cells_below") or 0) > 0:
-        send_health_alert([{"component": "reconcile_upbit", "status": "critical",
+        send_health_alert([{"name": "reconcile_upbit", "status": "critical",   # 플러그인 계약은 name/message (11-25 KeyError 재발 지점)
                             "message": f"{day} 가중 {agg.get('weighted_pct')}% · 셀 {agg.get('cells')} 중 {agg.get('cells_below')} 유실 · worst {worst[:3]}"}])
         raise RuntimeError("reconcile failed - see int_upbit_reconcile_hourly")
     return result

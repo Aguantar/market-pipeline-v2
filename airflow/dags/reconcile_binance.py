@@ -53,7 +53,7 @@ def summarize(**context) -> dict:
                       f"FROM mp2.int_binance_reconcile_hourly WHERE toDate(hour_utc) = '{day}' AND ex_n > 0") or {}
     context["ti"].log.info("binance reconcile %s: %s", day, agg)
     if int(agg.get("cells_below") or 0) > 0:
-        send_health_alert([{"component": "reconcile_binance", "status": "critical",
+        send_health_alert([{"name": "reconcile_binance", "status": "critical",   # 플러그인 계약은 name/message (11-25 KeyError 재발 지점)
                             "message": f"{day} 가중 {agg.get('weighted_pct')}% · 셀 {agg.get('cells')} 중 {agg.get('cells_below')} <99%"}])
     return agg
 
