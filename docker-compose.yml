@@ -31,7 +31,7 @@ services:
       start_period: 20s
   upbit-trades:
     build: { context: ., dockerfile: Dockerfile.collector }
-    image: mp2-collector
+    image: ghcr.io/aguantar/market-pipeline-v2-collector:latest   # CI 가 push, CD(cd/ 배포기)가 pull. 로컬 빌드는 `docker compose build` (build: 유지)
     container_name: mp2-upbit-trades
     command: ["python", "-m", "pipeline.collectors.upbit"]
     environment: { STREAM: trades, CH_HOST: clickhouse, CH_PASSWORD: "${CLICKHOUSE_PASSWORD}", MP2_DATA_ROOT: /data/raw, TZ: UTC }
@@ -41,7 +41,7 @@ services:
     restart: unless-stopped
     deploy: { resources: { limits: { memory: 256M } } }
   upbit-orderbook:
-    image: mp2-collector
+    image: ghcr.io/aguantar/market-pipeline-v2-collector:latest   # CI 가 push, CD(cd/ 배포기)가 pull. 로컬 빌드는 `docker compose build` (build: 유지)
     container_name: mp2-upbit-orderbook
     command: ["python", "-m", "pipeline.collectors.upbit"]
     environment: { STREAM: orderbook, CH_HOST: clickhouse, CH_PASSWORD: "${CLICKHOUSE_PASSWORD}", MP2_DATA_ROOT: /data/raw, TZ: UTC }
@@ -51,7 +51,7 @@ services:
     restart: unless-stopped
     deploy: { resources: { limits: { memory: 384M } } }
   binance-trades:
-    image: mp2-collector
+    image: ghcr.io/aguantar/market-pipeline-v2-collector:latest   # CI 가 push, CD(cd/ 배포기)가 pull. 로컬 빌드는 `docker compose build` (build: 유지)
     container_name: mp2-binance-trades
     command: ["python", "-m", "pipeline.collectors.binance"]
     environment: { STREAM: trades, CH_HOST: clickhouse, CH_PASSWORD: "${CLICKHOUSE_PASSWORD}", MP2_DATA_ROOT: /data/raw, TZ: UTC }
@@ -61,7 +61,7 @@ services:
     restart: unless-stopped
     deploy: { resources: { limits: { memory: 384M } } }
   binance-depth:
-    image: mp2-collector
+    image: ghcr.io/aguantar/market-pipeline-v2-collector:latest   # CI 가 push, CD(cd/ 배포기)가 pull. 로컬 빌드는 `docker compose build` (build: 유지)
     container_name: mp2-binance-depth
     command: ["python", "-m", "pipeline.collectors.binance"]
     environment: { STREAM: depth, CH_HOST: clickhouse, CH_PASSWORD: "${CLICKHOUSE_PASSWORD}", MP2_DATA_ROOT: /data/raw, TZ: UTC }

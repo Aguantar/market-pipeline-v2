@@ -48,6 +48,7 @@ cd dbt && CH_PASSWORD=… ../.venv/bin/dbt build --profiles-dir .               
 | 외부 감시 | `scripts/ops/heartbeat-push.sh` → Oracle cdc-watchdog (세 스트림 모두 0 일 때만 stale) | 5분 |
 | 관측 지표 | `scripts/observe/collect_metrics.sh` → `mp2.ops_metrics_5m` + CSV (v1 과 같은 단위: 5분 행수, lag p50/p95, 신선도, RSS, 디스크) | 5분 |
 | 측정 | `mp2.compaction_runs` (엔진별 하루치 재파싱 시간·메모리·크기), `mp2.pipeline_incidents`, `mp2.collector_gaps` | |
+| CD | `~/mp2-bin/mp2-cd`(Go, `cd/`) — GHCR digest 변화 감지 → `MODE=notify` 알림 / `MODE=deploy` 수집기 4개 pull·up·검증·롤백 (`docs/05`) | 5분 |
 
 컨테이너 8개, 호스트 메모리 약 4GB (v1: 26개·약 10GB). 자원 수치는 `docs/02`.
 
@@ -60,6 +61,7 @@ pipeline/rebuild/     파일 → 재구성 → 셀 대조        pipeline/compac
 clickhouse/ddl/  001 raw · 002 reference(캔들) · 003 ops(incidents) · 004 compaction_runs · 005 envelopes+MV(생성) · 006 ops_metrics
 dbt/             staging 4 · intermediate 5 · quality 4 · tests
 airflow/dags/    위 DAG 7 + mp2_common        airflow/plugins/  ClickHouse hook · Slack 콜백
+cd/              main.go — pull 방식 배포기 (docs/05)
 spark/           export_day_spark.py — compact 와 같은 입력·출력·검증을 Spark(local) 로. 학습 + 이 규모에서 지는 지점 기록용 (미실행)
 scripts/         ops/heartbeat-push.sh · observe/collect_metrics.sh
 tests/           filesink · parse · chsink(통합) · sql_parse(생성 DDL 일치)

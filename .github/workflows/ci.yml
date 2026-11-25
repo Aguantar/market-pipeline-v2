@@ -19,10 +19,30 @@ jobs:
         run: python -m pip install --quiet "websockets>=13,<15" "clickhouse-connect>=0.8,<0.9" pyarrow "pytest>=8" "pytest-asyncio>=0.24"
       - name: Unit tests (integration tests excluded)
         run: python -m pytest -q --ignore=tests/test_chsink.py
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.22" }
+      - name: Go tests (cd/ 배포기)
+        run: cd cd && gofmt -l . && go vet ./... && go test ./...
+
+  changes:
+    # build 를 돌릴지 판단: pipeline/** 또는 Dockerfile.collector 가 바뀐 push 만 (docs 커밋마다 수집기가 재배포되는 것을 막는다, docs/05 CD)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    outputs:
+      collector: ${{ steps.diff.outputs.collector }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - id: diff
+        run: |
+          base="${{ github.event.before }}"
+          if ! git cat-file -e "$base" 2>/dev/null || [ "$base" = "0000000000000000000000000000000000000000" ]; then base="HEAD~1"; fi
+          if git diff --name-only "$base" HEAD | grep -qE '^(pipeline/|Dockerfile\.collector$)'; then echo "collector=true" >> "$GITHUB_OUTPUT"; else echo "collector=false" >> "$GITHUB_OUTPUT"; fi
+          git diff --name-only "$base" HEAD | head -20
 
   build:
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, changes]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.collector == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
