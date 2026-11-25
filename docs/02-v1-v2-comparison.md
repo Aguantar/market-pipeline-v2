@@ -53,7 +53,7 @@ v1 의 "지연 2초" 는 자원 부족이 아니라 producer 2초 배치 + Flink
 | 봉투 Parquet vs gzip JSONL | - | 호가 2.41×, 체결 1.07~1.12×, depth 1.02× (payload 가 문자열이라) | | §10 #4 결정 근거 |
 | 컬럼형 Parquet 일 크기 | 호가 Parquet 일 1파일 ~700MB(backup_daily) | 11-25 00:20 첫 export 뒤 채움 | | |
 | 백업 검증 | rsync dry-run 0 + Backup Freshness(docs/51) | rsync dry-run 0 + SHA256 + export 때 라이브 셀 대조 | | |
-| 복원(하루치) | 네이티브 BACKUP 복원 3분27초(28.84GiB) / Parquet 21.1M행 63초 | rebuild 1시간 246만 행 **70초** → 하루 추정 ~28분(미실측) | | 합격선 "측정 뒤 확정" |
+| 복원(하루치) | 네이티브 BACKUP 복원 3분27초(28.84GiB) / Parquet 21.1M행 63초 | **rebuild 하루치 23분 17초**(11-25 실측, 55.5M행·27,117셀 전부 일치; 호가 1,116초가 80%). 1시간 창 70초 | | 합격선 ≤45분 |
 
 ## 4. 정확성·내구성·복구
 
