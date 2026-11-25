@@ -21,7 +21,8 @@ def _dec(path: str) -> str:
 
 
 def _opt_dec(path: str) -> str:
-    return f"if(JSONHas(payload, '{path}'), {_dec(path)}, NULL)"
+    # 키가 없거나 JSON null 이면 NULL. JSONExtractRaw 는 null 을 문자열 'null' 로 돌려주고 toDecimal128('null') 은 예외라 INSERT 배치 전체가 거부된다 (11-24 05:05 KRW-ON "bbp":null, worklog 11-25).
+    return f"if(JSONHas(payload, '{path}') AND JSONExtractRaw(payload, '{path}') != 'null', {_dec(path)}, NULL)"
 
 
 def _ms(expr: str) -> str:

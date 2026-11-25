@@ -38,7 +38,8 @@ def check(**context) -> dict:
         h.execute("INSERT INTO mp2.pipeline_incidents FORMAT JSONEachRow\n" + "\n".join(json.dumps(r, ensure_ascii=False) for r in rows))
         crit = [i for i in issues if i["status"] == "critical"]
         if crit:
-            send_health_alert(crit)
+            # 플러그인(v1) 계약은 {name, message}. 11-24 05:10~06:10 KeyError('name') 로 critical 7건이 발송되지 않았다 (worklog 11-25).
+            send_health_alert([{"name": i["component"], "message": i["message"]} for i in crit])
     context["ti"].log.info("health: %d issue(s) %s free_gb=%.1f", len(issues), issues, free_gb)
     return {"issues": len(issues), "free_gb": round(free_gb, 1)}
 

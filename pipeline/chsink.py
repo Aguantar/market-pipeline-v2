@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import collections
 import logging
+import re
 import time
 
 import clickhouse_connect
@@ -29,6 +30,17 @@ def make_client(host: str, port: int, user: str, password: str, database: str = 
                                                    "precise_float_parsing": 1})
 
 
+_TRANSIENT_CODES = {159, 160, 202, 203, 209, 210, 236, 241, 242, 252, 394, 439}   # timeout, too many queries/parts, network, memory limit, cancelled, read-only
+
+
+def _is_data_error(e: Exception) -> bool:
+    """서버가 '이 데이터는 못 넣는다' 고 답한 오류인가 (재시도해도 같은 결과). 연결·자원 오류는 False → 기존 백오프."""
+    m = re.search(r"Code: (\d+)", str(e))
+    if not m:
+        return False
+    return int(m.group(1)) not in _TRANSIENT_CODES
+
+
 class CHBatcher:
     def __init__(self, client, table: RawTable, batch_rows: int = BATCH_ROWS, batch_sec: float = BATCH_SEC,
                  max_queue: int = MAX_QUEUE):
@@ -43,6 +55,8 @@ class CHBatcher:
         self.inserted = 0
         self.failed_batches = 0
         self.dropped = 0
+        self.poison = 0            # 서버가 데이터 오류로 거부한 단건 (격리·로그 뒤 버림). 파일에는 남아 있다
+        self._single_fail = 0
         self.insert_ms: collections.deque[float] = collections.deque(maxlen=1000)
 
     def add(self, row: tuple) -> None:
@@ -74,6 +88,27 @@ class CHBatcher:
                 self._insert(batch)
             except Exception as e:  # noqa: BLE001
                 self.failed_batches += 1
+                if _is_data_error(e):
+                    # 독 행 격리 (11-24 05:05 사고: 한 행의 "bbp":null 이 500행 배치를 거부시키고, 그 배치가 큐 머리를 79분 막아 1,500행 드롭).
+                    # 데이터 오류는 재시도해도 같으므로 반으로 쪼개 머리에 둔다. 1행까지 쪼개진 뒤에도 거부되면 그 행만 버리고 기록한다.
+                    if len(batch) > 1:
+                        mid = len(batch) // 2
+                        self.pending.popleft()
+                        self.pending.appendleft(batch[mid:])
+                        self.pending.appendleft(batch[:mid])
+                        self.next_retry = now          # 쪼갠 조각은 바로 다시
+                        continue
+                    self._single_fail += 1
+                    if self._single_fail >= 2:
+                        self.pending.popleft()
+                        self.pending_rows -= 1
+                        self.poison += 1
+                        self._single_fail = 0
+                        log.error("%s poison row dropped (server rejected twice): %s | row=%s",
+                                  self.table.name, str(e)[:200], repr(batch[0])[:800])
+                        continue
+                    self.next_retry = now + 1.0
+                    return
                 self.next_retry = now + self.backoff
                 self.backoff = min(self.backoff * 2, 30.0)
                 if self.failed_batches <= 3 or self.failed_batches % 100 == 0:
@@ -83,6 +118,7 @@ class CHBatcher:
                 return
             self.pending.popleft()
             self.pending_rows -= len(batch)
+            self._single_fail = 0
         self.backoff = 1.0
 
     def _trim(self) -> None:
@@ -97,5 +133,5 @@ class CHBatcher:
     def stats(self) -> dict:
         lat = sorted(self.insert_ms)
         p95 = lat[int(len(lat) * 0.95)] if lat else 0
-        return {"inserted": self.inserted, "pending": self.pending_rows, "dropped": self.dropped,
+        return {"inserted": self.inserted, "pending": self.pending_rows, "dropped": self.dropped, "poison": self.poison,
                 "failed_batches": self.failed_batches, "insert_p95_ms": round(p95, 1)}

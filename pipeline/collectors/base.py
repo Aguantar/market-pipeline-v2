@@ -87,7 +87,7 @@ class Sink:
         b = self.batcher.stats()
         return (f"[STATS] {self.source}/{self.stream} recv={self.recv} parsed={self.parsed} skipped={self.skipped} parse_err={self.parse_err} "
                 f"files_closed={self.writer.chunks_closed} open_rows={self.writer.rows} | ch inserted={b['inserted']} pending={b['pending']} "
-                f"dropped={b['dropped']} failed={b['failed_batches']} insert_p95={b['insert_p95_ms']}ms | lag_p50={p50}ms lag_p95={p95}ms")
+                f"dropped={b['dropped']} poison={b['poison']} failed={b['failed_batches']} insert_p95={b['insert_p95_ms']}ms | lag_p50={p50}ms lag_p95={p95}ms")
 
 
 class Connection:

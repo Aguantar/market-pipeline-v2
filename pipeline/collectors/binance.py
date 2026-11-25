@@ -80,7 +80,7 @@ async def build(stop, client):
     async def refresh():
         new = await loop.run_in_executor(None, (lambda: fetch_top_symbols(DEPTH_TOP_N)) if STREAM == "depth" else fetch_symbols)
         cur = [s for c in conns for s in c.symbols]
-        if new and new != cur:
+        if new and set(new) != set(cur):   # 순서가 아니라 구성원이 바뀌었을 때만. 11-24 '+[] -[]' 재접속 4회가 순위 변동이었다
             log.info("symbol list changed +%s -%s -> reconnect", sorted(set(new) - set(cur))[:10], sorted(set(cur) - set(new))[:10])
             groups = chunks(new, STREAMS_PER_CONN)
             for i, c in enumerate(conns):

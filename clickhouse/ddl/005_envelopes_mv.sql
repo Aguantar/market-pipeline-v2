@@ -10,10 +10,10 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS mp2.mv_raw_upbit_trades TO mp2.raw_upbit_
         toDecimal128(JSONExtractRaw(payload, 'tp'), 8) AS price,
         toDecimal128(JSONExtractRaw(payload, 'tv'), 8) AS volume,
         JSONExtractString(payload, 'ab') AS ask_bid,
-        if(JSONHas(payload, 'bap'), toDecimal128(JSONExtractRaw(payload, 'bap'), 8), NULL) AS best_ask_price,
-        if(JSONHas(payload, 'bas'), toDecimal128(JSONExtractRaw(payload, 'bas'), 8), NULL) AS best_ask_size,
-        if(JSONHas(payload, 'bbp'), toDecimal128(JSONExtractRaw(payload, 'bbp'), 8), NULL) AS best_bid_price,
-        if(JSONHas(payload, 'bbs'), toDecimal128(JSONExtractRaw(payload, 'bbs'), 8), NULL) AS best_bid_size,
+        if(JSONHas(payload, 'bap') AND JSONExtractRaw(payload, 'bap') != 'null', toDecimal128(JSONExtractRaw(payload, 'bap'), 8), NULL) AS best_ask_price,
+        if(JSONHas(payload, 'bas') AND JSONExtractRaw(payload, 'bas') != 'null', toDecimal128(JSONExtractRaw(payload, 'bas'), 8), NULL) AS best_ask_size,
+        if(JSONHas(payload, 'bbp') AND JSONExtractRaw(payload, 'bbp') != 'null', toDecimal128(JSONExtractRaw(payload, 'bbp'), 8), NULL) AS best_bid_price,
+        if(JSONHas(payload, 'bbs') AND JSONExtractRaw(payload, 'bbs') != 'null', toDecimal128(JSONExtractRaw(payload, 'bbs'), 8), NULL) AS best_bid_size,
         fromUnixTimestamp64Milli(JSONExtractInt(payload, 'tms'), 'UTC') AS exchange_ts,
         recv_ts AS recv_ts
     FROM mp2.envelopes

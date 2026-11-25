@@ -38,3 +38,11 @@
   - 수정은 관찰 규칙상 사용자 결정 대기(MV 교체는 docs/03 §5 순서, 배처는 독 행 격리 필요, 알림 키 통일). 수정하면 관찰 시계 재시작.
 - 11-25 00:20~00:4x UTC **첫 자동 일주기 (ds=11-24)**: dbt_daily_finalize success(00:34). export_columnar: binance/trades **success**(20,397,777행 49.5초, 셀 전부 일치) / upbit/trades **failed** — 예상대로 결함 #2 의 `'null'` Decimal(같은 SELECT 로 하루치 파싱) / binance/depth·upbit/orderbook **DIFF 로 failed**(242/242 셀, 7,219 셀; orderbook 23,488,848행 642초).
   - **결함 #4 (검증 버그, 데이터는 정상)**: depth 의 Parquet 행수 6,789,081 = 라이브 6,789,081 이고, 셀 해시 불일치는 ClickHouse 가 Parquet 를 되읽을 때 `Array(Float64)` 를 `Array(Nullable(Float64))` 로 추론해 cityHash64 가 달라진 것. `schema_inference_make_columns_nullable=0` 또는 CAST 로 읽으면 BNBUSDT 03시 셀 해시 17727751671220886496 로 라이브와 정확히 같다. 배열 열이 없는 trades 두 스트림은 영향 없음(binance/trades 통과, upbit/trades 는 #2 로 실패). 11-23 분 "verified=1" 은 봉투 Parquet(payload 문자열) 시절이라 배열 검증을 거친 적이 없었다. 수정은 compact.py 검증 쿼리 설정 한 줄. 미적용(사용자 결정 대기).
+- 11-25 00:3x~00:4x UTC **관찰 중 발견 결함 수정 (사용자 승인, 순서대로)**:
+  ① 알림 키: health_check 가 `{name, message}` 로 넘기도록 수정 → 실제 Slack 테스트 critical 1건 발송, `send_health_alert` 경로 그대로 HTTP 200 'ok'(00:40).
+  ② MV null 가드: `_opt_dec` 에 `JSONExtractRaw != 'null'` 조건, 005 재생성(가드 4). 05시 파일로 새 SELECT 실행 → 117,461행 전부 파싱(null bid 1 → NULL). 라이브 교체는 docs/03 §5 순서(새 이름 CREATE → 옛 DROP → RENAME) **00:42:17.922 → 00:42:18.266 UTC, 0.34초**, 직전 60초 4,070행 → 직후 20초 1,409행 흐름 유지, `system.tables` 에 가드 4개 확인.
+  ②-b 배처 독 행 격리: 서버 데이터 오류(`Code:` 가 일시 오류 집합 {159,160,202,203,209,210,236,241,242,252,394,439} 밖)면 배치를 반으로 쪼개 머리에 되돌리고, 1행까지 쪼개진 뒤 두 번 거부되면 그 행만 `poison` 으로 세고 ERROR 로그에 행을 남긴다(파일엔 있음). 연결·자원 오류는 기존 백오프 유지. 회귀 테스트 3개(500행 중 독 1행 → 499행 적재·호출 <40회 / 일시 오류는 쪼개지 않음 / 분류). 전체 22 통과. STATS 에 `poison=` 추가.
+  ③ Binance depth 심볼 비교를 집합으로(순위만 바뀌면 재접속하던 것).
+  수집기 4개 새 이미지(2b0b0cdb) 재기동 **00:43:31.7 → 00:43:35.1 UTC**. 80초 뒤 4스트림 inserted 증가·pending 0·poison 0·failed 0·ERROR 0, 열린 .tmp 4개(스트림당 1).
+  incidents 수동 3건: 05:05 독 행 적재 정지(critical), 04시 273행 결손 원인 미상(warning), 알림 미발송(critical).
+  **7일 무변경 관찰 시계 재시작 = 수정 커밋 d19f024 시각 2026-11-25T00:46:14+00:00, 판정 2026-12-02T00:46:14Z.** 미결(사용자 결정 대기): #4 compact.py 검증의 Parquet nullable 추론(`schema_inference_make_columns_nullable=0`), #5 내보내기 실패 시 부분 Parquet 가 남아 백업되는 문제(임시 이름 → 검증 뒤 rename), 04~05시 CH 결손 1,773행 파일 재투입.
