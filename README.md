@@ -5,7 +5,7 @@ Upbit·Binance 시세를 웹소켓으로 받아 **불변 파일(JSONL.gz)** 과 
 
 - 왜 다시 만들었나: `docs/00-v1-stack-consolidated.md` (v1 의 정의·측정·사고 18건·결정 총정리, 출처 표기)
 - 설계: `docs/01-design.md` (원칙 4, 봉투 계약, 멱등 키, rebuild-from-files 합격선, §10 결정 기록 12항)
-- 전·후 비교: `docs/02-v1-v2-comparison.md` (v1 열 채움, v2 열은 7일 관찰 뒤 2026-12-01)
+- 전·후 비교: `docs/02-v1-v2-comparison.md` (v1 열 채움, v2 열은 7일 관찰 뒤 2026-12-02; §7 관찰 중 발견 5건)
 - 변경 연습: `docs/03-schema-version-exercise.md` (거래소 형식이 바뀌면 어디를 어떤 순서로)
 - 시간순 기록: `docs/worklog.md`
 
@@ -33,7 +33,7 @@ uv venv .venv && uv pip install --python .venv/bin/python websockets clickhouse-
 cp .env.example .env                       # CLICKHOUSE_PASSWORD, AIRFLOW_POSTGRES_PASSWORD, AIRFLOW_ADMIN_PASSWORD, AIRFLOW_FERNET_KEY
 docker compose up -d                       # clickhouse, 수집기 4, airflow(postgres·init·scheduler·webserver 127.0.0.1:8085)
 for f in clickhouse/ddl/*.sql; do docker exec -i mp2-clickhouse clickhouse-client --password "$CLICKHOUSE_PASSWORD" --multiquery < $f; done
-.venv/bin/python -m pytest -q              # 단위 + 통합(ClickHouse 필요) 20
+.venv/bin/python -m pytest -q              # 단위 19 + 통합(ClickHouse 필요) 3
 CH_PASSWORD=… .venv/bin/python -m pipeline.rebuild --from 2026-11-24T00:10:00Z --to 2026-11-24T01:10:00Z   # 파일 → envelopes → MV → 라이브와 셀 대조 (1시간 246만 행 70초)
 CH_PASSWORD=… .venv/bin/python -m pipeline.parity --day 2026-11-24                                       # 파이썬 파서 vs SQL 파서 동치
 cd dbt && CH_PASSWORD=… ../.venv/bin/dbt build --profiles-dir .                                            # 21/21
@@ -65,6 +65,6 @@ scripts/         ops/heartbeat-push.sh · observe/collect_metrics.sh
 tests/           filesink · parse · chsink(통합) · sql_parse(생성 DDL 일치)
 ```
 
-## 지금 상태 (2026-11-24)
+## 지금 상태 (2026-11-25)
 
-1주차 구현 전부 가동. **7일 무변경 관찰** 재시작 2026-11-25 00:4x UTC(첫 22시간에 결함 5건 발견·3건 수정, `docs/02` §7) ~ 12-02 — 이 기간 코드·DDL 을 바꾸지 않는다. 관찰 뒤: 전원 뽑기 리허설, `docs/02` v2 열, `exercise/schema-v2` 브랜치 반영, Spark 1회 실행. 원본 JSONL 7.9GB/일의 보존 기간은 미결(`docs/01` §8).
+1주차 구현 전부 가동. **7일 무변경 관찰** 재시작 2026-11-25 00:46:14 UTC = 커밋 8016efc(첫 22시간에 결함 5건 발견·3건 수정, `docs/02` §7) ~ 12-02 — 이 기간 코드·DDL 을 바꾸지 않는다. 관찰 뒤: 전원 뽑기 리허설, `docs/02` v2 열, `exercise/schema-v2` 브랜치 반영, Spark 1회 실행. 원본 JSONL 7.9GB/일의 보존 기간은 미결(`docs/01` §8).

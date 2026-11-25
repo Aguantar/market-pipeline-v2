@@ -45,4 +45,4 @@
   ③ Binance depth 심볼 비교를 집합으로(순위만 바뀌면 재접속하던 것).
   수집기 4개 새 이미지(2b0b0cdb) 재기동 **00:43:31.7 → 00:43:35.1 UTC**. 80초 뒤 4스트림 inserted 증가·pending 0·poison 0·failed 0·ERROR 0, 열린 .tmp 4개(스트림당 1).
   incidents 수동 3건: 05:05 독 행 적재 정지(critical), 04시 273행 결손 원인 미상(warning), 알림 미발송(critical).
-  **7일 무변경 관찰 시계 재시작 = 수정 커밋 d19f024 시각 2026-11-25T00:46:14+00:00, 판정 2026-12-02T00:46:14Z.** 미결(사용자 결정 대기): #4 compact.py 검증의 Parquet nullable 추론(`schema_inference_make_columns_nullable=0`), #5 내보내기 실패 시 부분 Parquet 가 남아 백업되는 문제(임시 이름 → 검증 뒤 rename), 04~05시 CH 결손 1,773행 파일 재투입.
+  **7일 무변경 관찰 시계 재시작 = 수정 커밋 8016efc(amend 전 d19f024) 시각 2026-11-25T00:46:14+00:00, 판정 2026-12-02T00:46:14Z.** 미결(사용자 결정 대기): #4 compact.py 검증의 Parquet nullable 추론(`schema_inference_make_columns_nullable=0`), #5 내보내기 실패 시 부분 Parquet 가 남아 백업되는 문제(임시 이름 → 검증 뒤 rename), 04~05시 CH 결손 1,773행 파일 재투입.

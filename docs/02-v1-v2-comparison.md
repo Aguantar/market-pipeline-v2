@@ -17,7 +17,7 @@
 
 ## 1. 지연·처리량
 
-| 지표 | v1 (75일 5분창 분포) | v1 (관찰 주간 docs/14) | v2 첫날 스냅샷 (11-24 03:02 UTC) | v2 7일 (12-01 채움) | 합격선 (docs/01 §5) |
+| 지표 | v1 (75일 5분창 분포) | v1 (관찰 주간 docs/14) | v2 첫날 스냅샷 (11-24 03:02 UTC) | v2 7일 (12-02 채움) | 합격선 (docs/01 §5) |
 |---|---|---|---|---|---|
 | Upbit 체결 e2e p50 | 중앙값 **1.11s**, p95 1.23s | - | lag p50 **46ms** + freshness 573ms | | - |
 | Upbit 체결 e2e p95 | 중앙값 **2.20s**, p95 2.27s, max 532s(백필 창) | 평균 2.16s, max 3.78s | lag p95 **113ms** | | ≤ 3s |
@@ -78,9 +78,9 @@ v1 의 "지연 2초" 는 자원 부족이 아니라 producer 2초 배치 + Flink
 | dbt 모델 | 다수(v1 README) | 15 + 테스트 6 |
 | 문서 | docs 01~60 | 00~02 + worklog |
 
-## 6. 12-01 에 채울 것 (절차)
+## 6. 12-02 에 채울 것 (절차)
 
-1. `mp2.ops_metrics_5m` 에서 11-24 02:29 ~ 12-01 02:29 구간으로 §1·§2 의 v2 열 계산(중앙값·p95·max). 쿼리는 아래.
+1. `mp2.ops_metrics_5m` 에서 **11-25 00:46:14 ~ 12-02 00:46:14 UTC**(재시작 창) 구간으로 §1·§2 의 v2 열 계산(중앙값·p95·max). 쿼리는 아래.
 2. `compaction_runs`·`backup_daily` 로그로 §3 컬럼형 Parquet 일 크기·export 소요 평균.
 3. `dq_*_reconcile_daily` 7일분으로 §4 대조율.
 4. `pipeline_incidents`·`collector_gaps` 7일 합계.
@@ -93,11 +93,11 @@ SELECT stream,
        quantile(0.5)(rows_5m) rows_median, quantile(0.95)(rows_5m) rows_p95,
        max(container_mem_mb) mem_max, sum(gaps_1h > 0) snapshots_with_gap
 FROM mp2.ops_metrics_5m
-WHERE ts BETWEEN '2026-11-24 02:29:19' AND '2026-12-01 02:29:19' AND stream != 'host'
+WHERE ts BETWEEN '2026-11-25 00:46:14' AND '2026-12-02 00:46:14' AND stream != 'host'
 GROUP BY stream ORDER BY stream;
 
 SELECT quantile(0.5)(ch_mem_mb), quantile(0.95)(ch_mem_mb), max(ch_mem_mb), max(host_used_mb), min(disk_free_gb), max(raw_dir_gb), max(parquet_dir_gb)
-FROM mp2.ops_metrics_5m WHERE stream = 'host' AND ts BETWEEN '2026-11-24 02:29:19' AND '2026-12-01 02:29:19';
+FROM mp2.ops_metrics_5m WHERE stream = 'host' AND ts BETWEEN '2026-11-25 00:46:14' AND '2026-12-02 00:46:14';
 ```
 
 ## 7. 관찰 중 발견 (11-24 02:29 ~ 11-25 00:43 UTC, 첫 22시간)
