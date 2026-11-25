@@ -42,7 +42,7 @@ for S in \
       round(quantile(0.5)(toUnixTimestamp64Milli(recv_ts) - toUnixTimestamp64Milli($tcol)), 1),
       round(quantile(0.95)(toUnixTimestamp64Milli(recv_ts) - toUnixTimestamp64Milli($tcol)), 1),
       max(toUnixTimestamp64Milli(recv_ts) - toUnixTimestamp64Milli($tcol)),
-      toUnixTimestamp64Milli(now64(3)) - toUnixTimestamp64Milli(max(recv_ts)),
+      if(count() = 0, 0, toUnixTimestamp64Milli(now64(3)) - toUnixTimestamp64Milli(max(recv_ts))),   -- 5분간 행이 없으면 0 (rows_5m=0 이 신호). 없을 때 max() 가 1970 이 되어 1.79e12 가 찍혔다 (11-24 05:40~06:05)
       (SELECT count() FROM mp2.collector_gaps WHERE source = '$src' AND stream = '$st' AND inserted_at >= now64() - INTERVAL 1 HOUR)
     FROM mp2.$table
     WHERE recv_ts >= now64() - INTERVAL 5 MINUTE AND $tcol >= now64() - INTERVAL 2 HOUR
