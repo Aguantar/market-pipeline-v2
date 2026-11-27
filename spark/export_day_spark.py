@@ -125,11 +125,17 @@ def verify_with_clickhouse(client, t: schema.RawTable, out_rel: str, day_from: d
     """compact.export_day 와 같은 검증. Parquet 의 열 타입(Int64, String…)을 라이브 표의 타입(UInt64, LowCardinality…)으로 CAST 한 뒤 해시한다 - 해시는 타입에 따라 달라질 수 있어서."""
     from pipeline.rebuild.compare import _cells
     types = {r[0]: r[1] for r in client.query(f"SELECT name, type FROM system.columns WHERE database = '{live_db}' AND table = '{t.name}'").result_rows}
-    casted = ", ".join(f"CAST({c}, '{types[c]}') AS {c}" for c in t.columns)
+    casted = ", ".join(f"CAST({c} AS {types[c]}) AS {c}" for c in t.columns)   # 11-25 밤 실행: CAST(x, 'DateTime64(3, 'UTC')') 따옴표 중첩으로 4/4 SQL 오류 → AS 문법
     hcols = ", ".join(t.hash_cols)
+    keys = ", ".join(t.order_by)
     out_cells = {(r[0], r[1]): (int(r[2]), int(r[3])) for r in client.query(
-        f"SELECT {t.cell_key}, toString(toStartOfHour({t.time_col})), count(), sum(cityHash64({hcols})) "
-        f"FROM (SELECT {casted} FROM file('{out_rel}', Parquet)) GROUP BY 1, 2", settings={"max_threads": 2}).result_rows}
+        f"SELECT cell, hour, count(), sum(h) FROM ("
+        f"  SELECT cell, hour, argMax(h, recv_ts) AS h FROM ("
+        f"    SELECT {t.cell_key} AS cell, toString(toStartOfHour({t.time_col})) AS hour, {keys}, recv_ts, cityHash64({hcols}) AS h "
+        f"    FROM (SELECT {casted} FROM file('{out_rel}', Parquet))"
+        f"  ) GROUP BY cell, hour, {keys}"
+        f") GROUP BY cell, hour",
+        settings={"max_threads": 2, "schema_inference_make_columns_nullable": 0, "max_bytes_before_external_group_by": 300_000_000}).result_rows}   # compact.py 와 같은 의미: 키별 마지막 수신본
     live_cells = _cells(client, live_db, t, day_from, day_to)
     diff = [k for k in set(out_cells) | set(live_cells) if out_cells.get(k, (0, 0)) != live_cells.get(k, (0, 0))]
     return sum(v[0] for v in out_cells.values()), sorted(diff), len(set(out_cells) | set(live_cells))
@@ -180,6 +186,36 @@ def export_day(spark, client, source: str, stream: str, day: date, data_root: Pa
     return res
 
 
+def verify_existing(client, source: str, stream: str, day: date, data_root: Path, ch_prefix: str, elapsed: float) -> dict:
+    """parquet_spark/ 에 이미 있는 하루치 산출물을 검증하고 compaction_runs 에 engine='spark' 로 기록한다 (Spark 재실행 없음)."""
+    t = schema.table_for(source, stream)
+    d = day.isoformat()
+    out_file = data_root / "parquet_spark" / t.name / f"dt={d}" / "part-0000.parquet"
+    if not out_file.exists():
+        raise FileNotFoundError(out_file)
+    src_files = sorted((data_root / "raw" / source / stream / f"dt={d}").glob("hour=*/part-*.jsonl.gz"))
+    src_bytes = sum(p.stat().st_size for p in src_files)
+    day_from = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+    day_to = datetime.fromtimestamp(day_from.timestamp() + 86400, tz=timezone.utc)
+    t0 = time.monotonic()
+    out_rows, diff, n_cells = verify_with_clickhouse(client, t, f"{ch_prefix}/parquet_spark/{t.name}/dt={d}/part-0000.parquet", day_from, day_to)
+    vsec = time.monotonic() - t0
+    out_bytes = out_file.stat().st_size
+    verified = not diff and out_rows > 0
+    res = {"engine": "spark", "source": source, "stream": stream, "day": d, "src_files": len(src_files), "out_rows": out_rows, "out_bytes": out_bytes,
+           "cells": n_cells, "diff_cells": len(diff), "verified": verified, "spark_seconds": elapsed, "verify_seconds": round(vsec, 1)}
+    client.insert("compaction_runs",
+                  [(datetime.now(timezone.utc).replace(tzinfo=None), "spark", source, stream, day, len(src_files), out_rows, src_bytes,
+                    out_rows, out_bytes, 1 if verified else 0, elapsed, 0.0,
+                    (f"spark local[2]; verify-only rerun after CAST bug; spark_seconds from 11-25 log; verify {vsec:.0f}s"
+                     if verified else f"spark local; DIFF cells={len(diff)} e.g. {diff[:3]}"))],
+                  column_names=["run_at", "engine", "source", "stream", "day", "src_files", "src_rows", "src_bytes", "out_rows", "out_bytes",
+                                "verified", "seconds", "peak_mem_mb", "note"])
+    if not verified:
+        raise RuntimeError(f"{t.name} {d}: spark-parsed cells != live cells ({len(diff)} of {n_cells}), e.g. {diff[:5]}")
+    return res
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--day", required=True)
@@ -188,11 +224,22 @@ def main() -> int:
     ap.add_argument("--streams", default=",".join(f"{s}/{t}" for s, t in schema.TABLES))
     ap.add_argument("--cores", type=int, default=2, help="compact 의 max_threads=2 와 맞춘다")
     ap.add_argument("--driver-mem", default="2g", help="compact 의 max_memory_usage 1.5GB 와 비슷한 상한")
+    ap.add_argument("--verify-only", action="store_true", help="Spark 를 돌리지 않고 parquet_spark/ 의 기존 산출물만 검증·기록 (검증 코드 버그 뒤 재검증용)")
+    ap.add_argument("--elapsed", default="", help="--verify-only 때 기록할 Spark 소요초: 'upbit/trades=143,upbit/orderbook=3811'")
     a = ap.parse_args()
     from pipeline import chsink
     client = chsink.make_client(os.getenv("CH_HOST", "127.0.0.1"), int(os.getenv("CH_PORT", "8123")), os.getenv("CH_USER", "default"), os.environ["CH_PASSWORD"], "mp2")
-    spark = build_session(a.cores, a.driver_mem, f"mp2-export-{a.day}")
     ok = True
+    if a.verify_only:
+        elapsed = {k: float(v) for k, v in (kv.split("=") for kv in a.elapsed.split(",") if kv)}
+        for key in [tuple(x.split("/")) for x in a.streams.split(",") if x]:
+            try:
+                print(verify_existing(client, key[0], key[1], date.fromisoformat(a.day), Path(a.data_root), a.ch_prefix, elapsed.get("/".join(key), 0.0)))
+            except Exception as e:  # noqa: BLE001
+                ok = False
+                print(f"{key}: FAILED {e}", file=sys.stderr)
+        return 0 if ok else 1
+    spark = build_session(a.cores, a.driver_mem, f"mp2-export-{a.day}")
     try:
         for key in [tuple(x.split("/")) for x in a.streams.split(",") if x]:
             try:

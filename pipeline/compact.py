@@ -37,6 +37,8 @@ def export_day(client, source: str, stream: str, day: date, data_root: str | Pat
         return {"source": source, "stream": stream, "day": d, "skipped": "no closed chunks"}
     if list(src_dir.glob("hour=*/*.tmp")):
         raise RuntimeError(f"{source}/{stream} {d}: open .tmp chunk(s) present - refusing")
+    day_from = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+    day_to = datetime.fromtimestamp(day_from.timestamp() + 86400, tz=timezone.utc)
     out_dir = data_root / "parquet" / t.name / f"dt={d}"
     out_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(out_dir, 0o777)
@@ -48,13 +50,19 @@ def export_day(client, source: str, stream: str, day: date, data_root: str | Pat
     tmp_file = tmp_dir / "part-0000.parquet"
     if tmp_file.exists():
         tmp_file.unlink()
-    src_glob = f"{ch_prefix}/raw/{source}/{stream}/dt={d}/hour=*/part-*.jsonl.gz"
+    # #9 (11-27): 날짜 경계. 그날 이벤트인데 이웃 날 파일에 들어간 행이 있다 — 23:59 이벤트가 00:00 에 수신(Upbit), 거래소 시계가 앞서 00:00:00.001 이벤트가 23:59:59.999 에 수신(Binance).
+    # 11-25·11-26 export 가 23시·00시 셀 1~4개로 실패했다. rebuild 의 ±slack 과 같은 원리로 전날 hour=23·다음날 hour=00 조각도 읽고 이벤트 시각으로 거른다(아래 sel_day).
+    prev_day = datetime.fromtimestamp(day_from.timestamp() - 86400, tz=timezone.utc).date().isoformat()
+    next_day = day_to.date().isoformat()
+    neighbor_dirs = [data_root / "raw" / source / stream / f"dt={prev_day}" / "hour=23", data_root / "raw" / source / stream / f"dt={next_day}" / "hour=00"]
+    src_globs = [f"{ch_prefix}/raw/{source}/{stream}/dt={d}/hour=*/part-*.jsonl.gz"] + [
+        f"{ch_prefix}/raw/{source}/{stream}/{nd.parent.name}/{nd.name}/part-*.jsonl.gz" for nd in neighbor_dirs if any(nd.glob("part-*.jsonl.gz"))]
     out_rel = f"{ch_prefix}/parquet/.tmp/{t.name}/dt={d}/part-0000.parquet"
     src_bytes = sum(p.stat().st_size for p in src_files)
-    day_from = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
-    day_to = datetime.fromtimestamp(day_from.timestamp() + 86400, tz=timezone.utc)
 
-    sel = sql_parse.select_sql((source, stream), f"file('{src_glob}', JSONEachRow, '{ENV_SCHEMA}')", recv=sql_parse.RECV_FROM_FILE)
+    from_clause = (f"file('{src_globs[0]}', JSONEachRow, '{ENV_SCHEMA}')" if len(src_globs) == 1 else
+                   "(" + " UNION ALL ".join(f"SELECT * FROM file('{g}', JSONEachRow, '{ENV_SCHEMA}')" for g in src_globs) + ")")
+    sel = sql_parse.select_sql((source, stream), from_clause, recv=sql_parse.RECV_FROM_FILE)
     # 그날의 이벤트 시각 행만(접속 스냅샷으로 전날 이벤트가 섞여 들어오므로) — 라이브 대조 창과 같은 기준
     # 출력은 파일을 파싱한 그대로(거래소 재전송 중복 포함). 중복 제거(LIMIT BY·GROUP BY)는 호가 23M 행에서 2.43→2.64→1.40GiB 로 세 번 메모리 한도를 넘었다(11-25 01:19~02:08).
     # 중복은 라이브가 하던 대로 ReplacingMergeTree 가 흡수하고, 여기서는 **검증을 중복 인식**으로 한다(아래). Parquet 은 "파싱된 원본 피드" 다.
@@ -92,7 +100,7 @@ def export_day(client, source: str, stream: str, day: date, data_root: str | Pat
     except Exception as e:  # noqa: BLE001
         log.warning("peak memory lookup failed: %s", e)
     verified = len(diff) == 0 and out_rows > 0
-    res = {"source": source, "stream": stream, "day": d, "src_files": len(src_files), "src_bytes": src_bytes, "out_rows": out_rows, "out_bytes": out_bytes,
+    res = {"source": source, "stream": stream, "day": d, "src_files": len(src_files), "src_bytes": src_bytes, "neighbor_globs": len(src_globs) - 1, "out_rows": out_rows, "out_bytes": out_bytes,
            "cells": len(set(out_cells) | set(live_cells)), "diff_cells": len(diff), "verified": verified, "seconds": round(seconds, 1), "peak_mem_mb": peak_mb,
            "ratio": round(src_bytes / out_bytes, 2) if out_bytes else None}
     client.insert("compaction_runs",
