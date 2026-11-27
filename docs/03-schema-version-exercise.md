@@ -18,7 +18,7 @@ Upbit 체결의 `ab`(ASK/BID) 가 `sd`(SELL/BUY) 로 바뀐다고 가정. 실제
 ## 3. 코드 변경 (브랜치, 라이브 미적용)
 
 `pipeline/sql_parse.py`:
-- `KNOWN_VERSIONS[(source, stream)]` — 파서가 아는 버전 목록. 모든 SELECT 의 WHERE 에 `schema_version IN (…)` 게이트가 붙는다(`version_gate`).
+- `KNOWN_VERSIONS[(source, stream)]` - 파서가 아는 버전 목록. 모든 SELECT 의 WHERE 에 `schema_version IN (…)` 게이트가 붙는다(`version_gate`).
 - `_by_version({1: expr, 2: expr})` → `multiIf(schema_version = 2, …, <v1 식>)`. 열 하나에 버전별 식을 둔다. upbit/trades `ask_bid` 가 첫 사용.
 - `generate_ddl` 이 `envelopes_rejected`(MergeTree, TTL 30일) 와 `mv_envelopes_rejected`(알려진 (source, stream, version) 조합이 아닌 봉투) 를 함께 낸다. **비어 있어야 정상**이고 health_check 가 세어야 한다(관찰 뒤 DAG 수정).
 - 테스트 4개 추가(`tests/test_schema_version.py`), 005 재생성. 전체 20 통과.
@@ -38,7 +38,7 @@ Upbit 체결의 `ab`(ASK/BID) 가 `sd`(SELL/BUY) 로 바뀐다고 가정. 실제
 | 0 | 거래소 공지의 변경 시각 T 확인. 바뀐 샘플 메시지 확보 | - |
 | 1 | `sql_parse.py`: `KNOWN_VERSIONS` 에 새 버전, 바뀐 열에 `_by_version`. 005 재생성, 단위 테스트 | `pytest`, DDL 파일 = generate_ddl |
 | 2 | 임시 DB 에서 **이 연습 스크립트의 B·C** 를 바뀐 샘플로 | 셀 대조 0 차이, rejected 0 |
-| 3 | 라이브 MV 교체 — **D 순서**: `CREATE MATERIALIZED VIEW mv_<t>_vN … AS <새 SELECT>` → `DROP TABLE mv_<t>` → `RENAME TABLE mv_<t>_vN TO mv_<t>`. rejected 표·MV 는 그냥 CREATE | 교체 전후 5분 창 raw 건수 연속, `envelopes_rejected` 0 |
+| 3 | 라이브 MV 교체 - **D 순서**: `CREATE MATERIALIZED VIEW mv_<t>_vN … AS <새 SELECT>` → `DROP TABLE mv_<t>` → `RENAME TABLE mv_<t>_vN TO mv_<t>`. rejected 표·MV 는 그냥 CREATE | 교체 전후 5분 창 raw 건수 연속, `envelopes_rejected` 0 |
 | 4 | 수집기: 해당 스트림 `SCHEMA_VERSION` 올려 재배포 (T 이후 메시지는 새 버전으로 봉투에 찍힘) | 재배포 뒤 75초: 4테이블 증가·드롭 0·rejected 0 |
 | 5 | T 를 포함한 1시간 창 **rebuild** (파일 → envelopes → 새 MV) 와 라이브 셀 대조 | 전 셀 일치 |
 | 6 | 옛 버전 봉투 파일은 그대로 둔다 - 파서가 두 버전을 다 알므로 재처리에 문제 없다 | - |

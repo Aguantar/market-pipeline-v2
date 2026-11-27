@@ -1,4 +1,4 @@
-# 05. CD — pull 방식 배포기 `mp2-cd` (2026-11-25)
+# 05. CD - pull 방식 배포기 `mp2-cd` (2026-11-25)
 
 ## 왜 pull 인가
 미니PC 는 공개 IP 가 없고 인바운드를 열지 않는다(SSH 도 WireGuard 안으로 옮기는 중, docs/59 §6 하드닝). GitHub 가 미니PC 로 밀어 넣는(push) 길이 없으니 미니PC 가 5분마다 레지스트리를 보고 끌어온다(pull). GitOps 계열 도구(Argo·Flux·Watchtower)와 같은 방향인데, 컨테이너 4개짜리에 그 도구를 올리는 것은 docs/01 §9 의 "측정 뒤 넣는다" 원칙에 어긋나 **표준 라이브러리만 쓴 Go 바이너리 1개(5.2MB, 250줄)** 로 했다.
@@ -20,7 +20,7 @@ git push(main) ─CI─▶ test(모든 push) ─▶ changes(pipeline/**·Dockerf
 - 숫자(배포 때 Slack 에 함께): pull+up 초, 서비스별 첫 STATS 까지 초(= 수집 공백 상한), 전체 초.
 
 ## 전제와 순서
-- compose 의 수집기 `image:` 는 11-25 에 `ghcr.io/aguantar/market-pipeline-v2-collector:latest` 로 바꿔 **커밋만** 했다. 현재 떠 있는 컨테이너는 로컬 빌드 `mp2-collector` 이미지 그대로다(관찰 중 재시작 금지). 12-02 판정 뒤 `MODE=deploy` 로 바꾸면 다음 digest 변화 때 처음 ghcr 이미지로 교체된다 — 그 첫 배포가 롤백 경로까지 포함한 실측이 된다.
+- compose 의 수집기 `image:` 는 11-25 에 `ghcr.io/aguantar/market-pipeline-v2-collector:latest` 로 바꿔 **커밋만** 했다. 현재 떠 있는 컨테이너는 로컬 빌드 `mp2-collector` 이미지 그대로다(관찰 중 재시작 금지). 12-02 판정 뒤 `MODE=deploy` 로 바꾸면 다음 digest 변화 때 처음 ghcr 이미지로 교체된다 - 그 첫 배포가 롤백 경로까지 포함한 실측이 된다.
 - CI `changes` 잡: docs 커밋마다 수집기가 재배포되는 것을 막는다. `test` 는 모든 push 에서 돈다.
 - 롤백 기준은 "검증 실패" 하나다. 배포 뒤 데이터 품질(대조·셀 비교)은 기존 DAG 가 본다.
 

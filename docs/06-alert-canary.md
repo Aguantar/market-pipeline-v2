@@ -3,7 +3,7 @@
 ## 문제
 11-24 05:10~06:10 UTC, health_check 가 critical 7건을 감지했지만 `send_health_alert` 의 KeyError 로 **한 건도 Slack 에 가지 않았다**(docs/02 §7 #1·#8). 알림을 보내는 코드가 죽으면 "알림이 없다" 와 "문제가 없다" 가 구분되지 않는다. 감시자(Oracle)는 heartbeat 부재·ClickHouse·적재 정지만 봤고 **알림 경로 자체**는 보지 않았다.
 
-## 설계 — 밖에서 세는 카나리
+## 설계 - 밖에서 세는 카나리
 ```
 Airflow alert_canary (07:10 UTC) ─ send_health_alert(같은 경로) ─▶ Slack  "alert-path ok"
         │ 2xx 일 때만
@@ -30,5 +30,5 @@ Oracle cdc-watchdog: alert_canary_epoch 가 없거나 26시간 넘게 갱신 안
 - v1 저장소: `scripts/ops/cdc-watchdog.py`(CANARY_SEC, 판정, self-test 3건) → Oracle `~/cdc-watchdog/` 배포, 이전본 `.bak.20261125`
 
 ## 안 한 것
-- Slack 쪽 장애(웹훅 폐기·채널 삭제)는 2xx 가 안 오므로 잡힌다. Slack 이 2xx 를 주고 메시지를 버리는 경우는 못 잡는다 — 그건 Slack 의 문제.
+- Slack 쪽 장애(웹훅 폐기·채널 삭제)는 2xx 가 안 오므로 잡힌다. Slack 이 2xx 를 주고 메시지를 버리는 경우는 못 잡는다 - 그건 Slack 의 문제.
 - 카나리를 critical 채널(`slack_webhook_critical`)로도 보내는 것: 하루 1건이라도 휴대폰 알림 채널에 소음을 넣지 않기로. 승격 경로는 실제 critical 때 한 번 더 확인하는 수밖에 없다.

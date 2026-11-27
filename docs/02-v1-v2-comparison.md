@@ -47,9 +47,9 @@ v1 의 "지연 2초" 는 자원 부족이 아니라 producer 2초 배치 + Flink
 
 | 지표 | v1 | v2 (11-24 실측) | v2 7일 | 비고 |
 |---|---|---|---|---|
-| 원본 보존 형태 | Kafka 로그(체결 7일·호가 24h·binance 3일) + ClickHouse(orderbook_raw 7일 TTL) — **원본은 보존 안 됨**, 재처리 = Kafka 재소비 | 봉투 JSONL.gz(불변 파일) + 컬럼형 Parquet 일 1회 → Oracle 14일 | | v2 원칙 §1-1 |
+| 원본 보존 형태 | Kafka 로그(체결 7일·호가 24h·binance 3일) + ClickHouse(orderbook_raw 7일 TTL) - **원본은 보존 안 됨**, 재처리 = Kafka 재소비 | 봉투 JSONL.gz(불변 파일) + 컬럼형 Parquet 일 1회 → Oracle 14일 | | v2 원칙 §1-1 |
 | 원본 일 증가 | Kafka 브로커1 +0.4~0.7GB/일, 플래토 15GB (docs/14) | JSONL.gz **≈7.9GB/일**(호가 913MB/3h 가 86%) | | Oracle 32GB 여유 → 컬럼형 Parquet 로 오프사이트 |
-| 압축률 (CH, 압축 전/후) | orderbook_raw **14.4:1**, crypto_trades 4.4:1, binance_trades 4.5:1 | raw_upbit_orderbook **14.45:1**, raw_upbit_trades 4.3:1, raw_binance_trades 5.06:1, raw_binance_depth 2.44:1 | | 같은 열 구성이면 같은 압축률 — 엔진이 아니라 데이터가 정한다 |
+| 압축률 (CH, 압축 전/후) | orderbook_raw **14.4:1**, crypto_trades 4.4:1, binance_trades 4.5:1 | raw_upbit_orderbook **14.45:1**, raw_upbit_trades 4.3:1, raw_binance_trades 5.06:1, raw_binance_depth 2.44:1 | | 같은 열 구성이면 같은 압축률 - 엔진이 아니라 데이터가 정한다 |
 | 봉투 Parquet vs gzip JSONL | - | 호가 2.41×, 체결 1.07~1.12×, depth 1.02× (payload 가 문자열이라) | | §10 #4 결정 근거 |
 | 컬럼형 Parquet 일 크기 | 호가 Parquet 일 1파일 ~700MB(backup_daily) | 11-25 00:20 첫 export 뒤 채움 | | |
 | 백업 검증 | rsync dry-run 0 + Backup Freshness(docs/51) | rsync dry-run 0 + SHA256 + export 때 라이브 셀 대조 | | |
@@ -61,10 +61,10 @@ v1 의 "지연 2초" 는 자원 부족이 아니라 producer 2초 배치 + Flink
 |---|---|---|---|---|
 | 거래소 대조(시간 캔들 vs 적재) | 관찰 주간 6일 연속 100%(docs/14), 평시 Binance 99.97% | 11-25 00:40(Binance)·06:35(Upbit) 첫 자동 실행 | | 일 100%, 셀 ≥ 99% |
 | 파일 ↔ 라이브 셀 대조 | 해당 없음(원본 파일 없음) | 1시간 창 2,248셀 일치(11-24 02:3x), 6분 창 991셀·898셀 일치 | 매일 00:20 export_columnar 가 하루치 대조 | 전 셀 일치 |
-| 재처리 결정성 | **비결정 잡 2개**(OrderBookReconstructor processing-time 타이머, Upbit 1분 창 watermark skew — docs/58 §5) | 파싱은 SQL 한 곳, 집계는 `insert_overwrite` 일 파티션 → 두 번 돌려도 같은 결과(dbt 1차에서 확인) | | - |
+| 재처리 결정성 | **비결정 잡 2개**(OrderBookReconstructor processing-time 타이머, Upbit 1분 창 watermark skew - docs/58 §5) | 파싱은 SQL 한 곳, 집계는 `insert_overwrite` 일 파티션 → 두 번 돌려도 같은 결과(dbt 1차에서 확인) | | - |
 | 중복 처리 | ReplacingMergeTree + FINAL (sequential_id 충돌 유실 1회, docs/13) | ReplacingMergeTree(자연키) + FINAL 은 staging 에서만 | | - |
 | 수집기 재연결 | 관찰 주간 2회/주(서버측 close) | `collector_gaps` 1시간 1건(호가, 03:02 시점) | | - |
-| 정전 복구 | **사람 4시간**: CH 0B 파트 크래시 루프 → 임시 설정, Flink HA 없음 → 수동 재제출 4잡, Kafka 절단 21파티션, REST 백필 195,657행, SQL 재계산 23,574행 (docs/58) | 미실험 — compose restart + 불변 파일(fsync·rename) + MV 가 설계상 답. **전원 뽑기 리허설은 관찰 종료 뒤** | | 자동, 사람 0분 |
+| 정전 복구 | **복구 3시간 36분(사람 1시간 10분)**: CH 0B 파트 크래시 루프 → 임시 설정, Flink HA 없음 → 수동 재제출 4잡, Kafka 절단 21파티션, REST 백필 195,657행, SQL 재계산 23,574행 (docs/58) | 미실험 - compose restart + 불변 파일(fsync·rename) + MV 가 설계상 답. **전원 뽑기 리허설은 관찰 종료 뒤** | | 자동, 사람 0분 |
 | 조용한 정지 | 16일(docs/44), 백업 7일 침묵(docs/51) | health_check 10분 + Oracle 감시자 heartbeat 5분(세 스트림 모두 0 일 때 stale) | | 7일 무사고 |
 
 ## 5. 운영 복잡도
@@ -113,11 +113,11 @@ FROM mp2.ops_metrics_5m WHERE stream = 'host' AND ts BETWEEN '2026-11-25 10:25:3
 | 5 | export INSERT 실패 뒤 부분 Parquet 가 남고 backup 이 그대로 복사 | 부분 파일 4개(2.3GB)가 백업 대상 디렉터리에 | #2·#4 조사 중 | **수정**: `.tmp/` 에 쓰고 검증 통과 뒤 rename, 실패 시 삭제. 4개는 격리 |
 | 7 | Upbit 재접속 7~16회/일(v1 관찰 주간 2회/주). 서버측 close·ping timeout·30초 무프레임. 공백 11~32초의 체결은 파일에도 없음 | 11-24 reconcile_upbit 84/12,611셀 <99%(재접속 5개 시간대와 일치) → DAG 실패 | 거래소 캔들 대조(dbt 테스트) | **미수정, 결정 필요**: Upbit REST 백필 도구 이식(docs/01 §8). 재접속 원인은 Upbit 쪽(Binance 0회) |
 | 8 | reconcile 두 DAG 의 `summarize` 도 `component` 키로 알림 호출(#1 의 누락 2곳) | 06:46 critical 미발송 | DAG 실패 이력 | **수정**: name 키. 호출처 3곳 전부 확인 |
-| 9 | export 가 `dt=그날` 파일만 읽어 **날짜 경계 행**(23:59 이벤트가 00:00 수신 — Upbit 1·호가 4행, 거래소 시계가 앞서 00:00:00.001 이벤트가 23:59:59.999 수신 — Binance 9행)을 빠뜨림 | 11-25 0/4·11-26 1/4 export 실패 → 오프사이트 Parquet 2일 결손 | export 셀 대조(검증이 맞게 잡음) | **수정(11-27)**: 전날 hour=23·다음날 hour=00 조각도 읽고 이벤트 시각으로 거름 |
+| 9 | export 가 `dt=그날` 파일만 읽어 **날짜 경계 행**(23:59 이벤트가 00:00 수신 - Upbit 1·호가 4행, 거래소 시계가 앞서 00:00:00.001 이벤트가 23:59:59.999 수신 - Binance 9행)을 빠뜨림 | 11-25 0/4·11-26 1/4 export 실패 → 오프사이트 Parquet 2일 결손 | export 셀 대조(검증이 맞게 잡음) | **수정(11-27)**: 전날 hour=23·다음날 hour=00 조각도 읽고 이벤트 시각으로 거름 |
 | 10 | dbt_hourly 가 select 없는 `build` 로 거래소 대조 테스트까지 실행 | #7 공백이 있는 날마다 매시간 failed(11-25~27 57회) + Slack | DAG 실패 이력 | **수정(11-27)**: staging + 1분 집계만, 대조는 reconcile DAG, dq 는 finalize |
-| 6 | 거래소가 재접속 뒤 같은 체결을 다시 보내 파일에 중복(하루 2,290행) → export Parquet 셀 행수 > 라이브 FINAL | 재접속 있는 날은 export 가 거짓 DIFF 로 실패 | 재투입 뒤 파일 vs CH 고유 키 대조 | **수정**: 출력은 파싱한 그대로 두고 **검증을 라이브와 같은 의미**로 — 키별 마지막 수신본(`argMax(hash, recv_ts)`)만 센다(호가는 같은 키로 내용이 다른 스냅샷도 와서 단순 중복 제거로는 부족했다). 출력에서 중복 제거(LIMIT BY·GROUP BY)는 호가 23M 행에서 메모리 한도를 세 번 넘어 포기 |
+| 6 | 거래소가 재접속 뒤 같은 체결을 다시 보내 파일에 중복(하루 2,290행) → export Parquet 셀 행수 > 라이브 FINAL | 재접속 있는 날은 export 가 거짓 DIFF 로 실패 | 재투입 뒤 파일 vs CH 고유 키 대조 | **수정**: 출력은 파싱한 그대로 두고 **검증을 라이브와 같은 의미**로 - 키별 마지막 수신본(`argMax(hash, recv_ts)`)만 센다(호가는 같은 키로 내용이 다른 스냅샷도 와서 단순 중복 제거로는 부족했다). 출력에서 중복 제거(LIMIT BY·GROUP BY)는 호가 23M 행에서 메모리 한도를 세 번 넘어 포기 |
 
-교훈: ① "파일 1순위" 는 손실을 막았지만 **CH 적재 경로의 독 행 한 건이 스트림 전체를 멈추는 것**은 설계가 아니라 측정이 알려 줬다. ② 알림 경로는 **실제로 한 번 울려 봐야** 믿을 수 있다(v1 코드 재사용이 계약 불일치를 숨겼다). ③ 검증 코드도 틀릴 수 있다 — 거짓 DIFF 를 "데이터 손실" 로 읽지 않으려면 행수와 해시를 따로 본다.
+교훈: ① "파일 1순위" 는 손실을 막았지만 **CH 적재 경로의 독 행 한 건이 스트림 전체를 멈추는 것**은 설계가 아니라 측정이 알려 줬다. ② 알림 경로는 **실제로 한 번 울려 봐야** 믿을 수 있다(v1 코드 재사용이 계약 불일치를 숨겼다). ③ 검증 코드도 틀릴 수 있다 - 거짓 DIFF 를 "데이터 손실" 로 읽지 않으려면 행수와 해시를 따로 본다.
 
 ## 출처
 

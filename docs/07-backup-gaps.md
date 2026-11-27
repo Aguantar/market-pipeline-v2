@@ -7,17 +7,17 @@ v1 종료 뒤 미니PC 에 남은 상태 중 백업이 없던 것 둘(my-postgre
 |---|---|---|---|
 | `my-postgres` | blood_db 62MB·metabase 30MB·icepush 7MB·postgres 7MB (계정 calme) | 백업 없음. 11-23 games pg_dump 1회만 | 매일 01:40 UTC `pg_dumpall --clean --if-exists` gzip → Oracle, 14일 |
 | `/etc/caddy` | Caddyfile + .bak 11개(05-10~11-23) | 백업 없음, 이력은 .bak 파일명 | **git 이력**(`~/minipc-config`, GitHub 비공개) + 매일 tar → Oracle |
-| Oracle `/mnt/backup` 자체 | v1 final 29GB, mp2 Parquet, minipc-final 등 — 블록 볼륨 1개(147GB 중 111GB) | 사본 1개 | v2 컬럼형 Parquet 최근 7일을 Object Storage(Always Free 20GB)에 2차 사본 — §3 |
+| Oracle `/mnt/backup` 자체 | v1 final 29GB, mp2 Parquet, minipc-final 등 - 블록 볼륨 1개(147GB 중 111GB) | 사본 1개 | v2 컬럼형 Parquet 최근 7일을 Object Storage(Always Free 20GB)에 2차 사본 - §3 |
 
 ## 2. 호스트 백업 `scripts/ops/backup-host.sh` (cron 01:40 UTC)
 - Airflow 컨테이너에는 docker 소켓이 없어 DAG 로는 `docker exec my-postgres` 를 못 한다 → 호스트 cron. 백업 대상이 호스트 것이니 호스트가 맞다.
 - 순서: pg_dumpall(0바이트면 실패 처리) → `tar /etc/caddy` → SHA256SUMS → rsync → **dry-run 차이 0 + 원격 `sha256sum -c`** → 로컬·원격 14일 보존. 둘 중 하나라도 어긋나면 종료 코드 1.
 - 11-25 첫 실행: **8.6MB, 4초, rsync 차이 0, 원격 SHA 일치**, 덤프 안 `CREATE DATABASE` 5개. Oracle `/mnt/backup/minipc-host/2026-11-25/`.
-- 복원: `zcat my-postgres.pg_dumpall.sql.gz | docker exec -i my-postgres psql -U calme -d postgres` (--clean 이라 기존 객체를 지우고 다시 만든다 — 다른 호스트의 빈 Postgres 에 하는 게 안전).
+- 복원: `zcat my-postgres.pg_dumpall.sql.gz | docker exec -i my-postgres psql -U calme -d postgres` (--clean 이라 기존 객체를 지우고 다시 만든다 - 다른 호스트의 빈 Postgres 에 하는 게 안전).
 
 ## 3. Caddyfile → git
 - `~/minipc-config`(GitHub 비공개 `Aguantar/minipc-config`): .bak 11개를 **mtime 순으로 커밋 날짜를 그대로 둔 이력 13커밋**으로 옮겼다. HEAD = 현재 `/etc/caddy/Caddyfile`(바이트 동일 확인).
-- 비밀값 점검: 평문 password/secret/token 0건. basic_auth bcrypt 해시 4종만 있음(평문 아님, 비공개 저장소 — 사용자 결정).
+- 비밀값 점검: 평문 password/secret/token 0건. basic_auth bcrypt 해시 4종만 있음(평문 아님, 비공개 저장소 - 사용자 결정).
 - 원본 .bak 삭제는 root 소유라 사용자가 sudo 로(§5). 삭제 뒤 `/etc/caddy` 는 Caddyfile 1개.
 - 적용 절차는 저장소 README 에: cp → `caddy validate` → `systemctl reload caddy`.
 
